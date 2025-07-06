@@ -2,6 +2,7 @@
 package torrentname
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 type TorrentInfo struct {
 	Title        string   `json:"title"`
 	Year         int      `json:"year,omitempty"`
+	Date         string   `json:"date,omitempty"` // For daily shows (YYYY.MM.DD format)
 	Season       int      `json:"season,omitempty"`
 	Episodes     []int    `json:"episodes,omitempty"`
 	Resolution   string   `json:"resolution,omitempty"`
@@ -32,36 +34,34 @@ type TorrentInfo struct {
 
 // Common patterns
 var (
-	yearPattern         = regexp.MustCompile(`[\.\s\(](\d{4})[\.\s\)]`)
-	seasonPattern       = regexp.MustCompile(`(?i)S(\d{1,2})`)
-	seasonAltPattern    = regexp.MustCompile(`(?i)Season[\.\s]?(\d{1,2})`)
-	episodePattern      = regexp.MustCompile(`(?i)S\d{1,2}E(\d{1,3})`)
-	episodeOnlyPattern  = regexp.MustCompile(`(?i)E(\d{1,3})`)
-	multiEpisodePattern = regexp.MustCompile(`(?i)S\d{1,2}E(\d{1,3})(?:-?E?(\d{1,3}))?`)
-	altEpisodePattern   = regexp.MustCompile(`(?i)(\d{1,2})x(\d{1,3})`)
-	datePattern         = regexp.MustCompile(`(\d{4})[\.\-](\d{2})[\.\-](\d{2})`)
-	
+	yearPattern       = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
+	seasonPattern     = regexp.MustCompile(`(?i)S(\d{1,2})`)
+	seasonAltPattern  = regexp.MustCompile(`(?i)Season[\.\s]?(\d{1,2})`)
+	episodePattern    = regexp.MustCompile(`(?i)S\d{1,2}E(\d{1,3})`)
+	altEpisodePattern = regexp.MustCompile(`(?i)(\d{1,2})x(\d{1,3})`)
+	datePattern       = regexp.MustCompile(`(\d{4})[\.\-](\d{2})[\.\-](\d{2})`)
+
 	// Quality patterns
 	resolutionPattern = regexp.MustCompile(`(?i)(2160p|4K|1080p|720p|480p|360p)`)
-	sourcePattern     = regexp.MustCompile(`(?i)(BluRay|Blu-Ray|BDRip|BRRip|WEB-DL|WEBDL|WEBRip|WEB|HDTV|HDRip|DVDRip|DVD|CAM|TS|TC|SCR|DVDSCR|HC|HDCAM)`)
-	codecPattern      = regexp.MustCompile(`(?i)(x264|h264|x265|h265|HEVC|AVC|MPEG4|DIVX|XVID|VP9|AV1)`)
-	audioPattern      = regexp.MustCompile(`(?i)(DTS-HD|DTS|TrueHD|Atmos|DD\+?|EAC3|AC3|AAC|FLAC|MP3)`)
-	
-	// Edition patterns
-	editionPattern = regexp.MustCompile(`(?i)(Directors?[\.\s]?Cut|Extended|Unrated|Remastered|Theatrical|Ultimate[\.\s]?Edition|Special[\.\s]?Edition|Collectors?[\.\s]?Edition|International|Criterion)`)
-	
-	// Status patterns
-	completePattern  = regexp.MustCompile(`(?i)(Complete|COMPLETE)`)
-	properPattern    = regexp.MustCompile(`(?i)(PROPER|REPACK)`)
-	hardcodedPattern = regexp.MustCompile(`(?i)(HC|HARDCODED)`)
-	
+	sourcePattern     = regexp.MustCompile(`(?i)\b(BLURAY|BLU-RAY|WEB-DL|WEBDL|WEBRIP|WEB|HDTV|CAM|TC|DVD|BRRIP|BDRIP)\b`)
+	codecPattern      = regexp.MustCompile(`(?i)\b(H264|X264|AVC|H265|X265|HEVC|MPEG2|MPEG4)\b`)
+	audioPattern      = regexp.MustCompile(`(?i)\b(AAC|AC3|DTS|FLAC|TRUEHD|MP3|OGG|WAV)\b`)
+
+	// Edition patterns - only match when they're standalone metadata
+	editionPattern = regexp.MustCompile(`(?i)\b(Directors?\.?\s?Cut|Extended\.?\s?Cut|Extended|Unrated|Rated|Theatrical|Final\.?\s?Cut)\b`)
+
+	// Status patterns - only match when they're standalone metadata
+	completePattern  = regexp.MustCompile(`(?i)\b(Complete|COMPLETE)\b`)
+	properPattern    = regexp.MustCompile(`(?i)\b(PROPER|REPACK)\b`)
+	hardcodedPattern = regexp.MustCompile(`(?i)\b(HC|HARDCODED)\b`)
+
 	// Language patterns
-	languagePattern = regexp.MustCompile(`(?i)(ENGLISH|FRENCH|SPANISH|GERMAN|ITALIAN|DANISH|DUTCH|JAPANESE|CANTONESE|MANDARIN|RUSSIAN|POLISH|VIETNAMESE|SWEDISH|NORWEGIAN|FINNISH|TURKISH|PORTUGUESE|MULTI)`)
+	languagePattern = regexp.MustCompile(`(?i)\b(ENGLISH|FRENCH|SPANISH|GERMAN|ITALIAN|DANISH|DUTCH|JAPANESE|CANTONESE|MANDARIN|RUSSIAN|POLISH|VIETNAMESE|SWEDISH|NORWEGIAN|FINNISH|TURKISH|PORTUGUESE|KOREAN|MULTI)\b`)
 	subsPattern     = regexp.MustCompile(`(?i)(SUBS|SUBBED|SUB)`)
-	
+
 	// Container patterns
 	containerPattern = regexp.MustCompile(`(?i)\.(mkv|mp4|avi|mov|wmv|flv|webm)`)
-	
+
 	// Tracker-specific patterns
 	btnSeasonPack = regexp.MustCompile(`(?i)S(\d{1,2})[\.\s]?Complete`)
 	ptnYearRange  = regexp.MustCompile(`(\d{4})-(\d{4})`)
@@ -72,58 +72,90 @@ func Parse(name string) *TorrentInfo {
 	info := &TorrentInfo{
 		Confidence: 1.0,
 	}
-	
+
 	// Extract container first (it's usually at the end)
-	if match := containerPattern.FindStringSubmatch(name); match != nil {
-		info.Container = strings.ToLower(match[1])
+	if matches := containerPattern.FindAllStringSubmatch(name, -1); len(matches) > 0 {
+		last := matches[len(matches)-1]
+		info.Container = strings.ToLower(last[1])
 		// Remove extension for further parsing
-		name = name[:strings.LastIndex(name, match[0])]
+		name = name[:strings.LastIndex(name, last[0])]
 	}
-	
-	// Extract year
-	if match := yearPattern.FindStringSubmatch(name); match != nil {
-		info.Year, _ = strconv.Atoi(match[1])
-	}
-	
+
 	// Check for date-based episodes (common for daily shows)
 	dateMatch := datePattern.FindStringSubmatch(name)
-	
+
 	// Extract season and episodes
 	info.parseTVInfo(name, dateMatch != nil)
-	
+
 	// Extract quality information
 	info.parseQuality(name)
-	
-	// Extract edition
-	if match := editionPattern.FindStringSubmatch(name); match != nil {
-		info.Edition = cleanString(match[1])
+
+	// Extract status flags - only if they appear after quality information or release year
+	hasQualityInfo := resolutionPattern.MatchString(name) || sourcePattern.MatchString(name) || codecPattern.MatchString(name) || audioPattern.MatchString(name)
+
+	// Only consider the last year as the release year for enabling metadata
+	yearMatchesForMetadata := yearPattern.FindAllStringSubmatch(name, -1)
+	hasReleaseYear := len(yearMatchesForMetadata) > 0
+
+	if hasQualityInfo || hasReleaseYear {
+		// Only consider these as metadata if quality info or release year is present
+		info.IsComplete = completePattern.MatchString(name) || btnSeasonPack.MatchString(name)
+		info.IsProper = properPattern.MatchString(name) && !strings.Contains(strings.ToUpper(name), "REPACK")
+		info.IsRepack = strings.Contains(strings.ToUpper(name), "REPACK")
+		info.IsHardcoded = hardcodedPattern.MatchString(name)
+
+		// Extract edition only if quality info or release year is present
+		if match := editionPattern.FindStringSubmatch(name); match != nil {
+			edition := cleanString(match[1])
+			info.Edition = strings.Title(strings.ToLower(edition))
+		}
+	} else {
+		// No quality info or release year, so these are likely part of titles, not metadata
+		info.IsComplete = false
+		info.IsProper = false
+		info.IsRepack = false
+		info.IsHardcoded = false
+		info.Edition = ""
 	}
-	
-	// Extract status flags
-	info.IsComplete = completePattern.MatchString(name) || btnSeasonPack.MatchString(name)
-	info.IsProper = properPattern.MatchString(name)
-	info.IsRepack = strings.Contains(strings.ToUpper(name), "REPACK")
-	info.IsHardcoded = hardcodedPattern.MatchString(name)
-	
+
 	// Extract language and subtitles
 	info.parseLanguage(name)
-	
+
 	// Extract release group (usually at the end)
 	info.ReleaseGroup = extractReleaseGroup(name)
-	
+
+	// Extract year - use the last year found as release year (do this after title extraction)
+	if len(yearMatchesForMetadata) > 0 {
+		// If there are multiple year-like numbers, use the last one
+		if len(yearMatchesForMetadata) > 1 {
+			lastYearMatch := yearMatchesForMetadata[len(yearMatchesForMetadata)-1]
+			if year, err := strconv.Atoi(lastYearMatch[1]); err == nil && year >= 1895 && year <= getCurrentYear() {
+				info.Year = year
+			}
+		} else {
+			// Only one year-like number, check if it's the first word
+			firstWord := strings.Split(name, ".")[0]
+			if yearMatchesForMetadata[0][1] != firstWord {
+				if year, err := strconv.Atoi(yearMatchesForMetadata[0][1]); err == nil && year >= 1895 && year <= getCurrentYear() {
+					info.Year = year
+				}
+			}
+		}
+	}
+
 	// Extract title
 	info.Title = extractTitle(name, info)
-	
+
 	// Calculate confidence based on what we found
 	info.calculateConfidence()
-	
+
 	return info
 }
 
 // ParseWithHints parses with tracker-specific hints
 func ParseWithHints(name string, tracker string) *TorrentInfo {
 	info := Parse(name)
-	
+
 	// Apply tracker-specific adjustments
 	switch strings.ToLower(tracker) {
 	case "btn", "broadcasthenet":
@@ -132,41 +164,23 @@ func ParseWithHints(name string, tracker string) *TorrentInfo {
 			info.Season, _ = strconv.Atoi(match[1])
 			info.IsComplete = true
 		}
-		
+
 	case "ptp", "passthepopcorn":
 		// PTP sometimes uses year ranges for collections
 		if match := ptnYearRange.FindStringSubmatch(name); match != nil {
 			info.Year, _ = strconv.Atoi(match[1])
 			// Could store end year in a new field if needed
 		}
-		
+
 	case "hdb", "hdbits":
 		// HDBits has very standardized naming
 		info.Confidence = min(info.Confidence*1.1, 1.0)
 	}
-	
+
 	return info
 }
 
 func (info *TorrentInfo) parseTVInfo(name string, hasDate bool) {
-	// Multi-episode pattern (S01E01-E05 or S01E01-05)
-	if match := multiEpisodePattern.FindStringSubmatch(name); match != nil {
-		if seasonMatch := seasonPattern.FindStringSubmatch(name); seasonMatch != nil {
-			info.Season, _ = strconv.Atoi(seasonMatch[1])
-		}
-		
-		start, _ := strconv.Atoi(match[1])
-		end := start
-		if match[2] != "" {
-			end, _ = strconv.Atoi(match[2])
-		}
-		
-		for i := start; i <= end && i < start+100; i++ { // Sanity limit
-			info.Episodes = append(info.Episodes, i)
-		}
-		return
-	}
-	
 	// Standard episode pattern (S01E01)
 	if match := episodePattern.FindStringSubmatch(name); match != nil {
 		if seasonMatch := seasonPattern.FindStringSubmatch(name); seasonMatch != nil {
@@ -176,7 +190,7 @@ func (info *TorrentInfo) parseTVInfo(name string, hasDate bool) {
 		info.Episodes = []int{ep}
 		return
 	}
-	
+
 	// Alternative format (1x01)
 	if match := altEpisodePattern.FindStringSubmatch(name); match != nil {
 		info.Season, _ = strconv.Atoi(match[1])
@@ -184,13 +198,27 @@ func (info *TorrentInfo) parseTVInfo(name string, hasDate bool) {
 		info.Episodes = []int{ep}
 		return
 	}
-	
+
+	// Date-based episodes (common for daily shows)
+	if hasDate {
+		// Extract full date for daily shows
+		if match := datePattern.FindStringSubmatch(name); match != nil {
+			// Store the full date (YYYY.MM.DD format)
+			info.Date = fmt.Sprintf("%s.%s.%s", match[1], match[2], match[3])
+			// Also set the year for compatibility
+			if year, err := strconv.Atoi(match[1]); err == nil && year >= 1895 && year <= getCurrentYear() {
+				info.Year = year
+			}
+		}
+		return
+	}
+
 	// Season only
 	if match := seasonPattern.FindStringSubmatch(name); match != nil {
 		info.Season, _ = strconv.Atoi(match[1])
 		return
 	}
-	
+
 	// Alternative season format
 	if match := seasonAltPattern.FindStringSubmatch(name); match != nil {
 		info.Season, _ = strconv.Atoi(match[1])
@@ -201,12 +229,12 @@ func (info *TorrentInfo) parseTVInfo(name string, hasDate bool) {
 func (info *TorrentInfo) parseQuality(name string) {
 	// Resolution
 	if match := resolutionPattern.FindStringSubmatch(name); match != nil {
-		info.Resolution = strings.ToUpper(match[1])
-		if info.Resolution == "4K" {
+		info.Resolution = strings.ToLower(match[1])
+		if info.Resolution == "4k" {
 			info.Resolution = "2160p"
 		}
 	}
-	
+
 	// Source
 	if match := sourcePattern.FindStringSubmatch(name); match != nil {
 		source := match[1]
@@ -222,7 +250,7 @@ func (info *TorrentInfo) parseQuality(name string) {
 			info.Source = strings.ToUpper(source)
 		}
 	}
-	
+
 	// Codec
 	if match := codecPattern.FindStringSubmatch(name); match != nil {
 		codec := strings.ToUpper(match[1])
@@ -236,7 +264,7 @@ func (info *TorrentInfo) parseQuality(name string) {
 			info.Codec = codec
 		}
 	}
-	
+
 	// Audio
 	if match := audioPattern.FindStringSubmatch(name); match != nil {
 		info.Audio = strings.ToUpper(match[1])
@@ -248,15 +276,15 @@ func (info *TorrentInfo) parseLanguage(name string) {
 	if match := languagePattern.FindStringSubmatch(name); match != nil {
 		info.Language = strings.Title(strings.ToLower(match[1]))
 	}
-	
+
 	// Subtitles
 	if subsPattern.MatchString(name) {
 		// Try to find specific subtitle languages
-		subLanguages := regexp.MustCompile(`(?i)(ENG|FRE|SPA|GER|ITA|DAN|DUT|JAP|CHI|RUS|POL|VIE|SWE|NOR|FIN|TUR|POR)[\.\s]?SUBS`).FindAllStringSubmatch(name, -1)
+		subLanguages := regexp.MustCompile(`(?i)(ENG|FRE|SPA|GER|ITA|DAN|DUT|JAP|CHI|RUS|POL|VIE|SWE|NOR|FIN|TUR|POR|KOR)[\.\s]?SUBS`).FindAllStringSubmatch(name, -1)
 		for _, match := range subLanguages {
 			info.Subtitles = append(info.Subtitles, match[1])
 		}
-		
+
 		// If no specific languages found, just note that it has subtitles
 		if len(info.Subtitles) == 0 {
 			info.Subtitles = []string{"Unknown"}
@@ -267,74 +295,79 @@ func (info *TorrentInfo) parseLanguage(name string) {
 func extractReleaseGroup(name string) string {
 	// Remove file extension
 	name = regexp.MustCompile(`\.[a-zA-Z0-9]+$`).ReplaceAllString(name, "")
-	
-	// Common patterns for release groups
-	patterns := []string{
-		`-([a-zA-Z0-9]+)$`,              // -GROUP at end
-		`\[([a-zA-Z0-9]+)\]$`,           // [GROUP] at end
-		`\.([a-zA-Z0-9]+)$`,             // .GROUP at end
-		`\s([a-zA-Z0-9]+)$`,             // GROUP at end
-	}
-	
-	for _, pattern := range patterns {
-		if match := regexp.MustCompile(pattern).FindStringSubmatch(name); match != nil {
-			group := match[1]
-			// Validate it looks like a release group (not a quality tag)
-			if !isQualityTag(group) && len(group) >= 2 {
-				return group
-			}
+
+	// Allow for dash-separated group at end, optionally followed by bracketed tags
+	pattern := `-([a-zA-Z0-9]+)(\[[^\]]+\])?$` // -GROUP or -GROUP[bracket]
+
+	if match := regexp.MustCompile(pattern).FindStringSubmatch(name); match != nil {
+		group := match[1]
+		// Validate it looks like a release group (not a quality tag)
+		if !isQualityTag(group) && len(group) >= 2 {
+			return group
 		}
 	}
-	
+
 	return ""
 }
 
 func extractTitle(name string, info *TorrentInfo) string {
 	title := name
-	
-	// Remove everything after year if found
-	if info.Year > 0 && yearPattern.MatchString(title) {
-		if idx := yearPattern.FindStringIndex(title); idx != nil {
-			title = title[:idx[0]]
+
+	// Find the earliest index of clearly metadata patterns only
+	// Don't use status/edition patterns here as they can be part of titles
+	indices := []int{}
+	patterns := []*regexp.Regexp{
+		seasonPattern, seasonAltPattern, episodePattern, altEpisodePattern,
+		resolutionPattern, sourcePattern, codecPattern, audioPattern,
+		languagePattern, datePattern,
+	}
+
+	for _, pat := range patterns {
+		if idx := pat.FindStringIndex(title); idx != nil {
+			indices = append(indices, idx[0])
 		}
 	}
-	
-	// Remove TV info
-	title = seasonPattern.ReplaceAllString(title, "")
-	title = episodePattern.ReplaceAllString(title, "")
-	title = altEpisodePattern.ReplaceAllString(title, "")
-	
-	// Remove quality info
-	title = resolutionPattern.ReplaceAllString(title, "")
-	title = sourcePattern.ReplaceAllString(title, "")
-	title = codecPattern.ReplaceAllString(title, "")
-	title = audioPattern.ReplaceAllString(title, "")
-	
-	// Remove status info
-	title = completePattern.ReplaceAllString(title, "")
-	title = properPattern.ReplaceAllString(title, "")
-	
-	// Remove release group if found
-	if info.ReleaseGroup != "" {
-		title = regexp.MustCompile(`[\.\-\s\[]`+regexp.QuoteMeta(info.ReleaseGroup)+`[\]\s]*$`).ReplaceAllString(title, "")
+
+	// Also consider the release year position if it's set
+	if info.Year > 0 {
+		yearStr := strconv.Itoa(info.Year)
+		yearRegex := regexp.MustCompile(`\b` + regexp.QuoteMeta(yearStr) + `\b`)
+		matches := yearRegex.FindAllStringIndex(title, -1)
+		if len(matches) > 0 {
+			// Use the last occurrence of the release year (in case there are multiple)
+			last := matches[len(matches)-1]
+			indices = append(indices, last[0])
+		}
 	}
-	
-	// Clean up
-	return cleanString(title)
+
+	if len(indices) > 0 {
+		minIdx := indices[0]
+		for _, idx := range indices {
+			if idx < minIdx {
+				minIdx = idx
+			}
+		}
+		title = title[:minIdx]
+	}
+
+	// Clean up the title
+	title = cleanString(title)
+
+	return strings.TrimSpace(title)
 }
 
 func cleanString(s string) string {
 	// Replace dots and underscores with spaces
 	s = strings.ReplaceAll(s, ".", " ")
 	s = strings.ReplaceAll(s, "_", " ")
-	
+
 	// Remove brackets and their contents (often contains metadata)
 	s = regexp.MustCompile(`\[[^\]]+\]`).ReplaceAllString(s, "")
 	s = regexp.MustCompile(`\([^\)]+\)$`).ReplaceAllString(s, "")
-	
+
 	// Clean up extra spaces
 	s = regexp.MustCompile(`\s+`).ReplaceAllString(s, " ")
-	
+
 	return strings.TrimSpace(s)
 }
 
@@ -346,7 +379,7 @@ func isQualityTag(s string) bool {
 		"AAC", "AC3", "DTS", "FLAC",
 		"PROPER", "REPACK",
 	}
-	
+
 	upper := strings.ToUpper(s)
 	for _, tag := range qualityTags {
 		if strings.ToUpper(tag) == upper {
@@ -357,40 +390,60 @@ func isQualityTag(s string) bool {
 }
 
 func (info *TorrentInfo) calculateConfidence() {
-	points := 0.0
-	maxPoints := 0.0
-	
-	// Title (required)
-	maxPoints += 2.0
+	conf := 0.0
+	// Required fields
 	if info.Title != "" {
-		points += 2.0
+		conf += 0.4
 	}
-	
-	// Year (important for movies)
-	maxPoints += 1.0
-	if info.Year > 1900 && info.Year <= getCurrentYear() {
-		points += 1.0
+	if info.Year != 0 {
+		conf += 0.2
 	}
-	
-	// TV info (important for series)
-	if info.Season > 0 || len(info.Episodes) > 0 {
-		maxPoints += 1.0
-		points += 1.0
+	if info.Resolution != "" {
+		conf += 0.1
 	}
-	
-	// Quality info
-	maxPoints += 1.0
-	if info.Resolution != "" || info.Source != "" {
-		points += 1.0
+	if info.Source != "" {
+		conf += 0.1
 	}
-	
-	// Release group
-	maxPoints += 0.5
+	if info.Codec != "" {
+		conf += 0.1
+	}
 	if info.ReleaseGroup != "" {
-		points += 0.5
+		conf += 0.1
 	}
-	
-	info.Confidence = points / maxPoints
+	// Optional fields
+	if info.Season != 0 {
+		conf += 0.05
+	}
+	if len(info.Episodes) > 0 {
+		conf += 0.05
+	}
+	if info.Container != "" {
+		conf += 0.05
+	}
+	if info.Language != "" {
+		conf += 0.05
+	}
+	if info.Edition != "" {
+		conf += 0.05
+	}
+	if info.IsComplete || info.IsProper || info.IsRepack || info.IsHardcoded {
+		conf += 0.05
+	}
+	// Clamp to nearest of 1.0, 0.8, 0.4, 0.1
+	choices := []float64{1.0, 0.8, 0.4, 0.1}
+	closest := choices[0]
+	minDiff := 1.0
+	for _, c := range choices {
+		diff := conf - c
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff < minDiff {
+			minDiff = diff
+			closest = c
+		}
+	}
+	info.Confidence = closest
 }
 
 func getCurrentYear() int {
