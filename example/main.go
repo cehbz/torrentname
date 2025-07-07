@@ -59,60 +59,83 @@ func main() {
 			log.Fatal(err)
 		}
 		fmt.Println(string(jsonData))
+
+		// Title normalization and matching examples
+		fmt.Println("\n\nTitle Normalization and Matching Examples:")
+		fmt.Println("==========================================")
+
+		title1 := "The.Matrix.1999.1080p.BluRay.x264-SPARKS"
+		title2 := "The Matrix"
+		title3 := "Matrix Reloaded"
+
+		normalized1 := torrentname.NormalizeTitle(title1)
+		normalized2 := torrentname.NormalizeTitle(title2)
+		normalized3 := torrentname.NormalizeTitle(title3)
+
+		fmt.Printf("Original: %q\n", title1)
+		fmt.Printf("Normalized: %q\n", normalized1)
+		fmt.Printf("Original: %q\n", title2)
+		fmt.Printf("Normalized: %q\n", normalized2)
+		fmt.Printf("Original: %q\n", title3)
+		fmt.Printf("Normalized: %q\n", normalized3)
+
+		fmt.Printf("\nMatching %q and %q (threshold 0.8): %v\n", title1, title2, torrentname.MatchTitles(title1, title2, 0.8))
+		fmt.Printf("Matching %q and %q (threshold 0.8): %v\n", title1, title3, torrentname.MatchTitles(title1, title3, 0.8))
+		fmt.Printf("Matching %q and %q (threshold 0.3): %v\n", title1, title3, torrentname.MatchTitles(title1, title3, 0.3))
 	}
 }
 
 func displayInfo(info *torrentname.TorrentInfo) {
 	fmt.Printf("  Title:         %s\n", info.Title)
-	
+
 	if info.Year > 0 {
 		fmt.Printf("  Year:          %d\n", info.Year)
 	}
-	
+
 	if info.Season > 0 {
 		fmt.Printf("  Season:        %d\n", info.Season)
 	}
-	
-	if len(info.Episodes) > 0 {
-		fmt.Printf("  Episodes:      %v\n", info.Episodes)
+
+	if info.Episode > 0 {
+		fmt.Printf("  Episode:       %d\n", info.Episode)
 	}
-	
+
 	if info.Resolution != "" {
 		fmt.Printf("  Resolution:    %s\n", info.Resolution)
 	}
-	
+
 	if info.Source != "" {
 		fmt.Printf("  Source:        %s\n", info.Source)
 	}
-	
+
 	if info.Codec != "" {
 		fmt.Printf("  Codec:         %s\n", info.Codec)
 	}
-	
+
 	if info.Audio != "" {
 		fmt.Printf("  Audio:         %s\n", info.Audio)
 	}
-	
+
 	if info.ReleaseGroup != "" {
 		fmt.Printf("  Release Group: %s\n", info.ReleaseGroup)
 	}
-	
+
 	if info.Container != "" {
 		fmt.Printf("  Container:     %s\n", info.Container)
 	}
-	
+
 	if info.Language != "" {
 		fmt.Printf("  Language:      %s\n", info.Language)
 	}
-	
+
 	if len(info.Subtitles) > 0 {
 		fmt.Printf("  Subtitles:     %v\n", info.Subtitles)
 	}
-	
+
 	if info.Edition != "" {
 		fmt.Printf("  Edition:       %s\n", info.Edition)
 	}
-	
+
 	// Status flags
 	var flags []string
 	if info.IsComplete {
@@ -127,10 +150,10 @@ func displayInfo(info *torrentname.TorrentInfo) {
 	if info.IsHardcoded {
 		flags = append(flags, "HARDCODED")
 	}
-	
+
 	if len(flags) > 0 {
 		fmt.Printf("  Flags:         %v\n", flags)
 	}
-	
+
 	fmt.Printf("  Confidence:    %.1f%%\n", info.Confidence*100)
 }

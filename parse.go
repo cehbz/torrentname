@@ -2,6 +2,7 @@
 package torrentname
 
 import (
+	"slices"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,7 +15,7 @@ type TorrentInfo struct {
 	Year         int      `json:"year,omitempty"`
 	Date         string   `json:"date,omitempty"` // For daily shows (YYYY.MM.DD format)
 	Season       int      `json:"season,omitempty"`
-	Episodes     []int    `json:"episodes,omitempty"`
+	Episode      int      `json:"episode,omitempty"` // Single episode number
 	Resolution   string   `json:"resolution,omitempty"`
 	Source       string   `json:"source,omitempty"`
 	Codec        string   `json:"codec,omitempty"`
@@ -177,24 +178,24 @@ func scanDefiniteMetadata(name string, info *TorrentInfo, startPos int) int {
 			return false
 		}},
 		{episodePattern, func(match string, info *TorrentInfo) bool {
-			if len(info.Episodes) == 0 {
+			if info.Episode == 0 {
 				// Extract season from the same pattern
 				if seasonMatch := seasonPattern.FindStringSubmatch(match); seasonMatch != nil {
 					info.Season, _ = strconv.Atoi(seasonMatch[1])
 				}
 				ep, _ := strconv.Atoi(match[strings.LastIndex(match, "E")+1:])
-				info.Episodes = []int{ep}
+				info.Episode = ep
 				return true
 			}
 			return false
 		}},
 		{altEpisodePattern, func(match string, info *TorrentInfo) bool {
-			if len(info.Episodes) == 0 {
+			if info.Episode == 0 {
 				parts := strings.Split(match, "x")
 				if len(parts) == 2 {
 					info.Season, _ = strconv.Atoi(parts[0])
 					ep, _ := strconv.Atoi(parts[1])
-					info.Episodes = []int{ep}
+					info.Episode = ep
 					return true
 				}
 			}
@@ -757,7 +758,7 @@ func (info *TorrentInfo) calculateConfidence() {
 	if info.Season != 0 {
 		conf += 5
 	}
-	if len(info.Episodes) > 0 {
+	if info.Episode != 0 {
 		conf += 5
 	}
 	if info.Container != "" {
@@ -787,4 +788,73 @@ func (info *TorrentInfo) calculateConfidence() {
 		conf = 100
 	}
 	info.Confidence = float64(conf) / 100.0
+}
+
+// NormalizeTitle removes common variations for matching
+func NormalizeTitle(title string) string {
+	// Convert to lowercase
+	normalized := strings.ToLower(title)
+
+	// Remove special characters except spaces
+	normalized = regexp.MustCompile(`[^\w\s]`).ReplaceAllString(normalized, " ")
+
+	// Remove common words
+	commonWords := []string{"the", "a", "an", "and", "or", "of"}
+	words := strings.Fields(normalized)
+	filtered := []string{}
+	for _, word := range words {
+		isCommon := slices.Contains(commonWords, word)
+		if !isCommon {
+			filtered = append(filtered, word)
+		}
+	}
+
+	return strings.Join(filtered, " ")
+}
+
+// MatchTitles checks if two titles likely refer to the same content
+func MatchTitles(title1, title2 string, threshold float64) bool {
+	norm1 := NormalizeTitle(title1)
+	norm2 := NormalizeTitle(title2)
+
+	// Exact match after normalization
+	if norm1 == norm2 {
+		return true
+	}
+
+	// Calculate similarity ratio
+	similarity := calculateSimilarity(norm1, norm2)
+	return similarity >= threshold
+}
+
+// Simple similarity calculation (Jaccard index)
+func calculateSimilarity(s1, s2 string) float64 {
+	words1 := strings.Fields(s1)
+	words2 := strings.Fields(s2)
+
+	// Create sets
+	set1 := make(map[string]bool)
+	set2 := make(map[string]bool)
+
+	for _, w := range words1 {
+		set1[w] = true
+	}
+	for _, w := range words2 {
+		set2[w] = true
+	}
+
+	// Calculate intersection and union
+	intersection := 0
+	for w := range set1 {
+		if set2[w] {
+			intersection++
+		}
+	}
+
+	union := len(set1) + len(set2) - intersection
+	if union == 0 {
+		return 0
+	}
+
+	return float64(intersection) / float64(union)
 }
