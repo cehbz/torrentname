@@ -85,7 +85,7 @@ func TestParse(t *testing.T) {
 			expected: &TorrentInfo{
 				Title:        "The Mandalorian",
 				Season:       2,
-				Episodes:     []int{8},
+				Episode:      8,
 				Resolution:   "1080p",
 				Source:       "WEBRip",
 				Codec:        "H265",
@@ -129,7 +129,7 @@ func TestParse(t *testing.T) {
 			expected: &TorrentInfo{
 				Title:      "House",
 				Season:     1,
-				Episodes:   []int{1},
+				Episode:    1,
 				Resolution: "720p",
 				Source:     "HDTV",
 				Codec:      "H264",
@@ -154,7 +154,7 @@ func TestParse(t *testing.T) {
 			expected: &TorrentInfo{
 				Title:        "The Witcher",
 				Season:       1,
-				Episodes:     []int{1},
+				Episode:      1,
 				IsRepack:     true,
 				Resolution:   "1080p",
 				Source:       "WEBRip",
@@ -307,7 +307,7 @@ func TestParse(t *testing.T) {
 			expected: &TorrentInfo{
 				Title:       "Squid Game",
 				Season:      1,
-				Episodes:    []int{1},
+				Episode:     1,
 				IsHardcoded: true,
 				Resolution:  "1080p",
 				Source:      "WEBRip",
@@ -640,8 +640,8 @@ func TestParse(t *testing.T) {
 			if result.Season != tt.expected.Season {
 				t.Errorf("Season: got %d, want %d", result.Season, tt.expected.Season)
 			}
-			if !intSlicesEqual(result.Episodes, tt.expected.Episodes) {
-				t.Errorf("Episodes: got %v, want %v", result.Episodes, tt.expected.Episodes)
+			if result.Episode != tt.expected.Episode {
+				t.Errorf("Episode: got %d, want %d", result.Episode, tt.expected.Episode)
 			}
 			if result.Resolution != tt.expected.Resolution {
 				t.Errorf("Resolution: got %q, want %q", result.Resolution, tt.expected.Resolution)
@@ -702,14 +702,205 @@ func BenchmarkParse(b *testing.B) {
 	}
 }
 
-func intSlicesEqual(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
+func TestNormalizeTitle(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple title",
+			input:    "The Matrix",
+			expected: "matrix",
+		},
+		{
+			name:     "title with special characters",
+			input:    "The.Matrix.1999.1080p.BluRay.x264-SPARKS",
+			expected: "matrix 1999 1080p bluray x264 sparks",
+		},
+		{
+			name:     "title with brackets",
+			input:    "The Matrix [1999] (Extended)",
+			expected: "matrix 1999 extended",
+		},
+		{
+			name:     "title with underscores",
+			input:    "The_Matrix_1999",
+			expected: "matrix 1999",
+		},
+		{
+			name:     "title with numbers",
+			input:    "2001 A Space Odyssey",
+			expected: "2001 space odyssey",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "only common words",
+			input:    "The A And Of",
+			expected: "",
+		},
+		{
+			name:     "mixed case",
+			input:    "The MATRIX and the Reloaded",
+			expected: "matrix reloaded",
+		},
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := NormalizeTitle(tt.input)
+			if result != tt.expected {
+				t.Errorf("NormalizeTitle(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
 	}
-	return true
+}
+
+func TestMatchTitles(t *testing.T) {
+	tests := []struct {
+		name      string
+		title1    string
+		title2    string
+		threshold float64
+		expected  bool
+	}{
+		{
+			name:      "exact match after normalization",
+			title1:    "The Matrix",
+			title2:    "The Matrix",
+			threshold: 0.8,
+			expected:  true,
+		},
+		{
+			name:      "similar titles with high threshold",
+			title1:    "The Matrix",
+			title2:    "Matrix",
+			threshold: 0.8,
+			expected:  true,
+		},
+		{
+			name:      "similar titles with low threshold",
+			title1:    "The Matrix",
+			title2:    "Matrix",
+			threshold: 0.9,
+			expected:  true,
+		},
+		{
+			name:      "different titles with high threshold",
+			title1:    "The Matrix",
+			title2:    "The Terminator",
+			threshold: 0.8,
+			expected:  false,
+		},
+		{
+			name:      "different titles with low threshold",
+			title1:    "The Matrix",
+			title2:    "The Terminator",
+			threshold: 0.3,
+			expected:  true,
+		},
+		{
+			name:      "titles with special characters",
+			title1:    "The.Matrix.1999.1080p.BluRay.x264-SPARKS",
+			title2:    "The Matrix",
+			threshold: 0.8,
+			expected:  true,
+		},
+		{
+			name:      "titles with different formatting",
+			title1:    "The Lord of the Rings",
+			title2:    "Lord of the Rings",
+			threshold: 0.8,
+			expected:  true,
+		},
+		{
+			name:      "completely different titles",
+			title1:    "The Matrix",
+			title2:    "Star Wars",
+			threshold: 0.5,
+			expected:  false,
+		},
+		{
+			name:      "empty titles",
+			title1:    "",
+			title2:    "",
+			threshold: 0.8,
+			expected:  true,
+		},
+		{
+			name:      "one empty title",
+			title1:    "The Matrix",
+			title2:    "",
+			threshold: 0.8,
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := MatchTitles(tt.title1, tt.title2, tt.threshold)
+			if result != tt.expected {
+				t.Errorf("MatchTitles(%q, %q, %f) = %v, want %v", tt.title1, tt.title2, tt.threshold, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCalculateSimilarity(t *testing.T) {
+	tests := []struct {
+		name     string
+		s1       string
+		s2       string
+		expected float64
+	}{
+		{
+			name:     "identical strings",
+			s1:       "matrix",
+			s2:       "matrix",
+			expected: 1.0,
+		},
+		{
+			name:     "completely different strings",
+			s1:       "matrix",
+			s2:       "terminator",
+			expected: 0.0,
+		},
+		{
+			name:     "partial overlap",
+			s1:       "matrix reloaded",
+			s2:       "matrix revolutions",
+			expected: 0.5, // 1 common word out of 3 total unique words
+		},
+		{
+			name:     "empty strings",
+			s1:       "",
+			s2:       "",
+			expected: 0.0,
+		},
+		{
+			name:     "one empty string",
+			s1:       "matrix",
+			s2:       "",
+			expected: 0.0,
+		},
+		{
+			name:     "same words different order",
+			s1:       "matrix reloaded",
+			s2:       "reloaded matrix",
+			expected: 1.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := calculateSimilarity(tt.s1, tt.s2)
+			if result != tt.expected {
+				t.Errorf("calculateSimilarity(%q, %q) = %f, want %f", tt.s1, tt.s2, result, tt.expected)
+			}
+		})
+	}
 }
