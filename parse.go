@@ -2,7 +2,6 @@
 package torrentname
 
 import (
-	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,8 +27,9 @@ type TorrentInfo struct {
 	IsProper     bool     `json:"is_proper,omitempty"`
 	IsRepack     bool     `json:"is_repack,omitempty"`
 	IsHardcoded  bool     `json:"is_hardcoded,omitempty"`
-	Edition      string   `json:"edition,omitempty"` // Director's Cut, Extended, etc.
-	Confidence   float64  `json:"confidence"`        // 0.0 to 1.0
+	Edition      string   `json:"edition,omitempty"`  // Director's Cut, Extended, etc.
+	Confidence   float64  `json:"confidence"`         // 0.0 to 1.0
+	Unparsed     string   `json:"unparsed,omitempty"` // Everything after metadata start that isn't metadata
 }
 
 // Common patterns
@@ -51,8 +51,9 @@ var (
 	editionPattern = regexp.MustCompile(`(?i)\b(Directors?\.?\s?Cut|Extended\.?\s?Cut|Extended|Unrated|Rated|Theatrical|Final\.?\s?Cut)\b`)
 
 	// Status patterns - only match when they're standalone metadata
-	completePattern  = regexp.MustCompile(`(?i)\b(Complete|COMPLETE)\b`)
-	properPattern    = regexp.MustCompile(`(?i)\b(PROPER|REPACK)\b`)
+	completePattern  = regexp.MustCompile(`(?i)\b(Complete)\b`)
+	properPattern    = regexp.MustCompile(`(?i)\b(PROPER)\b`)
+	repackPattern    = regexp.MustCompile(`(?i)\b(REPACK)\b`)
 	hardcodedPattern = regexp.MustCompile(`(?i)\b(HC|HARDCODED)\b`)
 
 	// Language patterns
@@ -60,7 +61,10 @@ var (
 	subsPattern     = regexp.MustCompile(`(?i)(SUBS|SUBBED|SUB)`)
 
 	// Container patterns
-	containerPattern = regexp.MustCompile(`(?i)\.(mkv|mp4|avi|mov|wmv|flv|webm)`)
+	containerPattern = regexp.MustCompile(`(?i)\.(mkv|mp4|avi|mov|wmv|flv|webm)$`)
+
+	// Release group pattern
+	releaseGroupPattern = regexp.MustCompile(`-([a-zA-Z0-9]+)(\[[^\]]+\])?$`)
 
 	// Tracker-specific patterns
 	btnSeasonPack = regexp.MustCompile(`(?i)S(\d{1,2})[\.\s]?Complete`)
@@ -81,75 +85,545 @@ func Parse(name string) *TorrentInfo {
 		name = name[:strings.LastIndex(name, last[0])]
 	}
 
-	// Check for date-based episodes (common for daily shows)
-	dateMatch := datePattern.FindStringSubmatch(name)
+	// Find metadata boundary using three-phase approach
+	metadataStartPos := findMetadataBoundary(name, info)
 
-	// Extract season and episodes
-	info.parseTVInfo(name, dateMatch != nil)
+	// Extract title using the metadata start position
+	info.Title = extractTitleFromPosition(name, metadataStartPos)
 
-	// Extract quality information
-	info.parseQuality(name)
-
-	// Extract status flags - only if they appear after quality information or release year
-	hasQualityInfo := resolutionPattern.MatchString(name) || sourcePattern.MatchString(name) || codecPattern.MatchString(name) || audioPattern.MatchString(name)
-
-	// Only consider the last year as the release year for enabling metadata
-	yearMatchesForMetadata := yearPattern.FindAllStringSubmatch(name, -1)
-	hasReleaseYear := len(yearMatchesForMetadata) > 0
-
-	if hasQualityInfo || hasReleaseYear {
-		// Only consider these as metadata if quality info or release year is present
-		info.IsComplete = completePattern.MatchString(name) || btnSeasonPack.MatchString(name)
-		info.IsProper = properPattern.MatchString(name) && !strings.Contains(strings.ToUpper(name), "REPACK")
-		info.IsRepack = strings.Contains(strings.ToUpper(name), "REPACK")
-		info.IsHardcoded = hardcodedPattern.MatchString(name)
-
-		// Extract edition only if quality info or release year is present
-		if match := editionPattern.FindStringSubmatch(name); match != nil {
-			edition := cleanString(match[1])
-			info.Edition = strings.Title(strings.ToLower(edition))
-		}
-	} else {
-		// No quality info or release year, so these are likely part of titles, not metadata
-		info.IsComplete = false
-		info.IsProper = false
-		info.IsRepack = false
-		info.IsHardcoded = false
-		info.Edition = ""
-	}
-
-	// Extract language and subtitles
-	info.parseLanguage(name)
-
-	// Extract release group (usually at the end)
-	info.ReleaseGroup = extractReleaseGroup(name)
-
-	// Extract year - use the last year found as release year (do this after title extraction)
-	if len(yearMatchesForMetadata) > 0 {
-		// If there are multiple year-like numbers, use the last one
-		if len(yearMatchesForMetadata) > 1 {
-			lastYearMatch := yearMatchesForMetadata[len(yearMatchesForMetadata)-1]
-			if year, err := strconv.Atoi(lastYearMatch[1]); err == nil && year >= 1895 && year <= getCurrentYear() {
-				info.Year = year
-			}
-		} else {
-			// Only one year-like number, check if it's the first word
-			firstWord := strings.Split(name, ".")[0]
-			if yearMatchesForMetadata[0][1] != firstWord {
-				if year, err := strconv.Atoi(yearMatchesForMetadata[0][1]); err == nil && year >= 1895 && year <= getCurrentYear() {
-					info.Year = year
-				}
-			}
-		}
-	}
-
-	// Extract title
-	info.Title = extractTitle(name, info)
+	// Extract unparsed content (everything after metadata start that isn't metadata)
+	info.Unparsed = extractUnparsedContent(name, metadataStartPos)
 
 	// Calculate confidence based on what we found
 	info.calculateConfidence()
 
 	return info
+}
+
+// findMetadataBoundary finds all metadata and determines where the title ends
+func findMetadataBoundary(name string, info *TorrentInfo) int {
+	metadataStartPos := len(name)
+
+	// Phase 1: Definite metadata (back-to-front)
+	metadataStartPos = scanDefiniteMetadata(name, info, metadataStartPos)
+
+	// Phase 2: Possible metadata phase 1 (back-to-front, up to current metadata start)
+	metadataStartPos = scanPossibleMetadataPhase1(name, info, metadataStartPos)
+
+	// Phase 3: Possible metadata phase 2 (front-to-back, from current metadata start)
+	metadataStartPos = scanPossibleMetadataPhase2(name, info, metadataStartPos)
+
+	return metadataStartPos
+}
+
+// scanDefiniteMetadata scans for definite metadata from back to front
+func scanDefiniteMetadata(name string, info *TorrentInfo, startPos int) int {
+	metadataStartPos := startPos
+
+	// Definite metadata patterns
+	patterns := []struct {
+		pattern *regexp.Regexp
+		handler func(string, *TorrentInfo) bool
+	}{
+		{resolutionPattern, func(match string, info *TorrentInfo) bool {
+			if info.Resolution == "" {
+				info.Resolution = strings.ToLower(match)
+				if info.Resolution == "4k" {
+					info.Resolution = "2160p"
+				}
+				return true
+			}
+			return false
+		}},
+		{sourcePattern, func(match string, info *TorrentInfo) bool {
+			if info.Source == "" {
+				source := match
+				// Normalize source names
+				switch strings.ToUpper(source) {
+				case "BLURAY", "BLU-RAY":
+					info.Source = "BluRay"
+				case "WEB-DL", "WEBDL":
+					info.Source = "WEB-DL"
+				case "WEBRIP", "WEB":
+					info.Source = "WEBRip"
+				default:
+					info.Source = strings.ToUpper(source)
+				}
+				return true
+			}
+			return false
+		}},
+		{codecPattern, func(match string, info *TorrentInfo) bool {
+			if info.Codec == "" {
+				codec := strings.ToUpper(match)
+				// Normalize codec names
+				switch codec {
+				case "H264", "X264", "AVC":
+					info.Codec = "H264"
+				case "H265", "X265", "HEVC":
+					info.Codec = "H265"
+				default:
+					info.Codec = codec
+				}
+				return true
+			}
+			return false
+		}},
+		{audioPattern, func(match string, info *TorrentInfo) bool {
+			if info.Audio == "" {
+				info.Audio = strings.ToUpper(match)
+				return true
+			}
+			return false
+		}},
+		{episodePattern, func(match string, info *TorrentInfo) bool {
+			if len(info.Episodes) == 0 {
+				// Extract season from the same pattern
+				if seasonMatch := seasonPattern.FindStringSubmatch(match); seasonMatch != nil {
+					info.Season, _ = strconv.Atoi(seasonMatch[1])
+				}
+				ep, _ := strconv.Atoi(match[strings.LastIndex(match, "E")+1:])
+				info.Episodes = []int{ep}
+				return true
+			}
+			return false
+		}},
+		{altEpisodePattern, func(match string, info *TorrentInfo) bool {
+			if len(info.Episodes) == 0 {
+				parts := strings.Split(match, "x")
+				if len(parts) == 2 {
+					info.Season, _ = strconv.Atoi(parts[0])
+					ep, _ := strconv.Atoi(parts[1])
+					info.Episodes = []int{ep}
+					return true
+				}
+			}
+			return false
+		}},
+		{seasonPattern, func(match string, info *TorrentInfo) bool {
+			if info.Season == 0 {
+				info.Season, _ = strconv.Atoi(match[1:])
+				return true
+			}
+			return false
+		}},
+		{seasonAltPattern, func(match string, info *TorrentInfo) bool {
+			if info.Season == 0 {
+				info.Season, _ = strconv.Atoi(match[strings.Index(match, "n")+1:])
+				return true
+			}
+			return false
+		}},
+		{datePattern, func(match string, info *TorrentInfo) bool {
+			if info.Date == "" {
+				// Store the full date (YYYY.MM.DD format)
+				info.Date = strings.ReplaceAll(match, "-", ".")
+				// Also set the year for compatibility
+				if year, err := strconv.Atoi(match[:4]); err == nil && year >= 1895 && year <= time.Now().Year() {
+					info.Year = year
+				}
+				return true
+			}
+			return false
+		}},
+	}
+
+	// Find all matches and sort by position (descending for back-to-front scan)
+	var matches []struct {
+		start, end int
+		pattern    int
+	}
+
+	for i, p := range patterns {
+		allMatches := p.pattern.FindAllStringIndex(name, -1)
+		for _, match := range allMatches {
+			matches = append(matches, struct {
+				start, end int
+				pattern    int
+			}{match[0], match[1], i})
+		}
+	}
+
+	// Sort by start position (descending for back-to-front scan)
+	for i := 0; i < len(matches); i++ {
+		for j := i + 1; j < len(matches); j++ {
+			if matches[i].start < matches[j].start {
+				matches[i], matches[j] = matches[j], matches[i]
+			}
+		}
+	}
+
+	// Process matches from end to beginning
+	for _, match := range matches {
+		if match.start >= metadataStartPos {
+			continue // Skip if already past our metadata start
+		}
+
+		matchText := name[match.start:match.end]
+		if patterns[match.pattern].handler(matchText, info) {
+			// New metadata found, update start position
+			metadataStartPos = match.start
+		} else {
+			// Duplicate metadata found, terminate scan
+			break
+		}
+	}
+
+	return metadataStartPos
+}
+
+// scanPossibleMetadataPhase1 scans for possible metadata from back to front, up to current metadata start
+func scanPossibleMetadataPhase1(name string, info *TorrentInfo, startPos int) int {
+	metadataStartPos := startPos
+
+	// Possible metadata patterns
+	patterns := []struct {
+		pattern *regexp.Regexp
+		handler func(string, *TorrentInfo) bool
+	}{
+		{yearPattern, func(match string, info *TorrentInfo) bool {
+			if info.Year == 0 {
+				if year, err := strconv.Atoi(match); err == nil && year >= 1895 && year <= time.Now().Year() {
+					info.Year = year
+					return true
+				}
+			}
+			return false
+		}},
+		{editionPattern, func(match string, info *TorrentInfo) bool {
+			if info.Edition == "" {
+				// Normalize multi-word editions by replacing dots with spaces
+				norm := strings.ReplaceAll(match, ".", " ")
+				info.Edition = strings.Title(strings.ToLower(norm))
+				return true
+			}
+			return false
+		}},
+		{completePattern, func(match string, info *TorrentInfo) bool {
+			if !info.IsComplete {
+				info.IsComplete = true
+				return true
+			}
+			return false
+		}},
+		{properPattern, func(match string, info *TorrentInfo) bool {
+			if !info.IsProper {
+				info.IsProper = true
+				return true
+			}
+			return false
+		}},
+		{repackPattern, func(match string, info *TorrentInfo) bool {
+			if !info.IsRepack {
+				info.IsRepack = true
+				return true
+			}
+			return false
+		}},
+		{hardcodedPattern, func(match string, info *TorrentInfo) bool {
+			if !info.IsHardcoded {
+				info.IsHardcoded = true
+				return true
+			}
+			return false
+		}},
+		{languagePattern, func(match string, info *TorrentInfo) bool {
+			if info.Language == "" {
+				info.Language = strings.Title(strings.ToLower(match))
+				return true
+			}
+			return false
+		}},
+		{subsPattern, func(match string, info *TorrentInfo) bool {
+			if len(info.Subtitles) == 0 {
+				// Try to find specific subtitle languages
+				subLanguages := regexp.MustCompile(`(?i)(ENG|FRE|SPA|GER|ITA|DAN|DUT|JAP|CHI|RUS|POL|VIE|SWE|NOR|FIN|TUR|POR|KOR)[\.\s]?SUBS`).FindAllStringSubmatch(match, -1)
+				for _, submatch := range subLanguages {
+					info.Subtitles = append(info.Subtitles, submatch[1])
+				}
+
+				// If no specific languages found, just note that it has subtitles
+				if len(info.Subtitles) == 0 {
+					info.Subtitles = []string{"Unknown"}
+				}
+				return true
+			}
+			return false
+		}},
+		{releaseGroupPattern, func(match string, info *TorrentInfo) bool {
+			if info.ReleaseGroup == "" {
+				if submatch := releaseGroupPattern.FindStringSubmatch(match); submatch != nil {
+					group := submatch[1]
+					if !isQualityTag(group) && len(group) >= 2 {
+						info.ReleaseGroup = group
+						return true
+					}
+				}
+			}
+			return false
+		}},
+	}
+
+	// Find all matches and sort by position (descending for back-to-front scan)
+	var matches []struct {
+		start, end int
+		pattern    int
+	}
+
+	for i, p := range patterns {
+		allMatches := p.pattern.FindAllStringIndex(name, -1)
+		for _, match := range allMatches {
+			matches = append(matches, struct {
+				start, end int
+				pattern    int
+			}{match[0], match[1], i})
+		}
+	}
+
+	// Sort by start position (descending for back-to-front scan)
+	for i := 0; i < len(matches); i++ {
+		for j := i + 1; j < len(matches); j++ {
+			if matches[i].start < matches[j].start {
+				matches[i], matches[j] = matches[j], matches[i]
+			}
+		}
+	}
+
+	// Process matches from end to beginning, up to current metadata start
+	for _, match := range matches {
+		if match.start < metadataStartPos {
+			break // Skip if before our metadata start - all subsequent matches will also be before
+		}
+
+		matchText := name[match.start:match.end]
+		if patterns[match.pattern].handler(matchText, info) {
+			// New metadata found, but don't update start position in step 2
+		} else {
+			// Duplicate metadata found, terminate scan
+			break
+		}
+	}
+
+	return metadataStartPos
+}
+
+// scanPossibleMetadataPhase2 scans for possible metadata from current metadata start towards beginning
+func scanPossibleMetadataPhase2(name string, info *TorrentInfo, startPos int) int {
+	metadataStartPos := startPos
+
+	// Possible metadata patterns (same as phase 1)
+	patterns := []struct {
+		pattern *regexp.Regexp
+		handler func(string, *TorrentInfo) bool
+	}{
+		{yearPattern, func(match string, info *TorrentInfo) bool {
+			if info.Year == 0 {
+				if year, err := strconv.Atoi(match); err == nil && year >= 1895 && year <= time.Now().Year() {
+					info.Year = year
+					return true
+				}
+			}
+			return false
+		}},
+		{editionPattern, func(match string, info *TorrentInfo) bool {
+			if info.Edition == "" {
+				// Normalize multi-word editions by replacing dots with spaces
+				norm := strings.ReplaceAll(match, ".", " ")
+				info.Edition = strings.Title(strings.ToLower(norm))
+				return true
+			}
+			return false
+		}},
+		{completePattern, func(match string, info *TorrentInfo) bool {
+			if !info.IsComplete {
+				info.IsComplete = true
+				return true
+			}
+			return false
+		}},
+		{properPattern, func(match string, info *TorrentInfo) bool {
+			if !info.IsProper {
+				info.IsProper = true
+				return true
+			}
+			return false
+		}},
+		{repackPattern, func(match string, info *TorrentInfo) bool {
+			if !info.IsRepack {
+				info.IsRepack = true
+				return true
+			}
+			return false
+		}},
+		{hardcodedPattern, func(match string, info *TorrentInfo) bool {
+			if !info.IsHardcoded {
+				info.IsHardcoded = true
+				return true
+			}
+			return false
+		}},
+		{languagePattern, func(match string, info *TorrentInfo) bool {
+			if info.Language == "" {
+				info.Language = strings.Title(strings.ToLower(match))
+				return true
+			}
+			return false
+		}},
+		{subsPattern, func(match string, info *TorrentInfo) bool {
+			if len(info.Subtitles) == 0 {
+				// Try to find specific subtitle languages
+				subLanguages := regexp.MustCompile(`(?i)(ENG|FRE|SPA|GER|ITA|DAN|DUT|JAP|CHI|RUS|POL|VIE|SWE|NOR|FIN|TUR|POR|KOR)[\.\s]?SUBS`).FindAllStringSubmatch(match, -1)
+				for _, submatch := range subLanguages {
+					info.Subtitles = append(info.Subtitles, submatch[1])
+				}
+
+				// If no specific languages found, just note that it has subtitles
+				if len(info.Subtitles) == 0 {
+					info.Subtitles = []string{"Unknown"}
+				}
+				return true
+			}
+			return false
+		}},
+		{releaseGroupPattern, func(match string, info *TorrentInfo) bool {
+			if info.ReleaseGroup == "" {
+				if submatch := releaseGroupPattern.FindStringSubmatch(match); submatch != nil {
+					group := submatch[1]
+					if !isQualityTag(group) && len(group) >= 2 {
+						info.ReleaseGroup = group
+						return true
+					}
+				}
+			}
+			return false
+		}},
+	}
+
+	// Find all matches and sort by position (descending for back-to-front scan)
+	var matches []struct {
+		start, end int
+		pattern    int
+	}
+
+	for i, p := range patterns {
+		allMatches := p.pattern.FindAllStringIndex(name, -1)
+		for _, match := range allMatches {
+			matches = append(matches, struct {
+				start, end int
+				pattern    int
+			}{match[0], match[1], i})
+		}
+	}
+
+	// Sort by start position (descending for back-to-front scan)
+	for i := 0; i < len(matches); i++ {
+		for j := i + 1; j < len(matches); j++ {
+			if matches[i].start < matches[j].start {
+				matches[i], matches[j] = matches[j], matches[i]
+			}
+		}
+	}
+
+	// Process matches from current metadata start towards beginning
+	for _, match := range matches {
+		if match.start >= metadataStartPos {
+			continue // Skip if already past our metadata start
+		}
+
+		// Don't consume the first word of the entire name as metadata
+		if match.start == 0 {
+			break
+		}
+
+		// Check if this metadata is adjacent to current metadata start
+		if !isAdjacentToMetadataStart(match.start, match.end, metadataStartPos, name) {
+			break // Not adjacent, exit scan
+		}
+
+		matchText := name[match.start:match.end]
+		if patterns[match.pattern].handler(matchText, info) {
+			// New metadata found, update start position
+			metadataStartPos = match.start
+		} else {
+			// Duplicate metadata found, terminate scan
+			break
+		}
+	}
+
+	return metadataStartPos
+}
+
+// isAdjacentToMetadataStart checks if a metadata position is adjacent to the current metadata start
+func isAdjacentToMetadataStart(start, end, metadataStartPos int, name string) bool {
+	// If this metadata ends at the metadata start position, it's adjacent
+	if end == metadataStartPos {
+		return true
+	}
+
+	// If this metadata starts at the metadata start position, it's adjacent
+	if start == metadataStartPos {
+		return true
+	}
+
+	// Check if there are only separators between this metadata and the metadata start
+	if end < metadataStartPos {
+		// This metadata comes before the metadata start
+		between := name[end:metadataStartPos]
+		return isOnlySeparators(between)
+	} else if start > metadataStartPos {
+		// This metadata comes after the metadata start (shouldn't happen in phase 2)
+		between := name[metadataStartPos:start]
+		return isOnlySeparators(between)
+	}
+
+	return false
+}
+
+// isOnlySeparators returns true if the string contains only separator characters
+func isOnlySeparators(s string) bool {
+	for _, c := range s {
+		if c != '.' && c != ' ' && c != '-' && c != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// extractUnparsedContent extracts everything after metadata start that isn't metadata
+func extractUnparsedContent(name string, metadataStartPos int) string {
+	if metadataStartPos >= len(name) {
+		return ""
+	}
+
+	afterMetadata := name[metadataStartPos:]
+
+	// Find all metadata patterns in the remaining text
+	metadataPatterns := []*regexp.Regexp{
+		resolutionPattern, sourcePattern, codecPattern, audioPattern,
+		languagePattern, completePattern, properPattern, repackPattern, hardcodedPattern,
+		editionPattern, yearPattern, releaseGroupPattern,
+	}
+
+	// Remove all metadata from the unparsed content
+	result := afterMetadata
+	for _, pattern := range metadataPatterns {
+		result = pattern.ReplaceAllString(result, "")
+	}
+
+	// Clean up extra spaces and separators
+	result = strings.ReplaceAll(result, ".", " ")
+	result = strings.ReplaceAll(result, "-", " ")
+	result = regexp.MustCompile(`\s+`).ReplaceAllString(result, " ")
+
+	return strings.TrimSpace(result)
+}
+
+// isReasonableYear checks if a string is a reasonable year
+func isReasonableYear(s string) bool {
+	if year, err := strconv.Atoi(s); err == nil {
+		return year >= 1895 && year <= time.Now().Year()
+	}
+	return false
 }
 
 // ParseWithHints parses with tracker-specific hints
@@ -174,186 +648,55 @@ func ParseWithHints(name string, tracker string) *TorrentInfo {
 
 	case "hdb", "hdbits":
 		// HDBits has very standardized naming
-		info.Confidence = min(info.Confidence*1.1, 1.0)
+		if info.Confidence*1.1 < 1.0 {
+			info.Confidence = info.Confidence * 1.1
+		} else {
+			info.Confidence = 1.0
+		}
 	}
 
 	return info
 }
 
-func (info *TorrentInfo) parseTVInfo(name string, hasDate bool) {
-	// Standard episode pattern (S01E01)
-	if match := episodePattern.FindStringSubmatch(name); match != nil {
-		if seasonMatch := seasonPattern.FindStringSubmatch(name); seasonMatch != nil {
-			info.Season, _ = strconv.Atoi(seasonMatch[1])
-		}
-		ep, _ := strconv.Atoi(match[1])
-		info.Episodes = []int{ep}
-		return
-	}
-
-	// Alternative format (1x01)
-	if match := altEpisodePattern.FindStringSubmatch(name); match != nil {
-		info.Season, _ = strconv.Atoi(match[1])
-		ep, _ := strconv.Atoi(match[2])
-		info.Episodes = []int{ep}
-		return
-	}
-
-	// Date-based episodes (common for daily shows)
-	if hasDate {
-		// Extract full date for daily shows
-		if match := datePattern.FindStringSubmatch(name); match != nil {
-			// Store the full date (YYYY.MM.DD format)
-			info.Date = fmt.Sprintf("%s.%s.%s", match[1], match[2], match[3])
-			// Also set the year for compatibility
-			if year, err := strconv.Atoi(match[1]); err == nil && year >= 1895 && year <= getCurrentYear() {
-				info.Year = year
-			}
-		}
-		return
-	}
-
-	// Season only
-	if match := seasonPattern.FindStringSubmatch(name); match != nil {
-		info.Season, _ = strconv.Atoi(match[1])
-		return
-	}
-
-	// Alternative season format
-	if match := seasonAltPattern.FindStringSubmatch(name); match != nil {
-		info.Season, _ = strconv.Atoi(match[1])
-		return
-	}
-}
-
-func (info *TorrentInfo) parseQuality(name string) {
-	// Resolution
-	if match := resolutionPattern.FindStringSubmatch(name); match != nil {
-		info.Resolution = strings.ToLower(match[1])
-		if info.Resolution == "4k" {
-			info.Resolution = "2160p"
-		}
-	}
-
-	// Source
-	if match := sourcePattern.FindStringSubmatch(name); match != nil {
-		source := match[1]
-		// Normalize source names
-		switch strings.ToUpper(source) {
-		case "BLURAY", "BLU-RAY":
-			info.Source = "BluRay"
-		case "WEB-DL", "WEBDL":
-			info.Source = "WEB-DL"
-		case "WEBRIP", "WEB":
-			info.Source = "WEBRip"
-		default:
-			info.Source = strings.ToUpper(source)
-		}
-	}
-
-	// Codec
-	if match := codecPattern.FindStringSubmatch(name); match != nil {
-		codec := strings.ToUpper(match[1])
-		// Normalize codec names
-		switch codec {
-		case "H264", "X264", "AVC":
-			info.Codec = "H264"
-		case "H265", "X265", "HEVC":
-			info.Codec = "H265"
-		default:
-			info.Codec = codec
-		}
-	}
-
-	// Audio
-	if match := audioPattern.FindStringSubmatch(name); match != nil {
-		info.Audio = strings.ToUpper(match[1])
-	}
-}
-
-func (info *TorrentInfo) parseLanguage(name string) {
-	// Language
-	if match := languagePattern.FindStringSubmatch(name); match != nil {
-		info.Language = strings.Title(strings.ToLower(match[1]))
-	}
-
-	// Subtitles
-	if subsPattern.MatchString(name) {
-		// Try to find specific subtitle languages
-		subLanguages := regexp.MustCompile(`(?i)(ENG|FRE|SPA|GER|ITA|DAN|DUT|JAP|CHI|RUS|POL|VIE|SWE|NOR|FIN|TUR|POR|KOR)[\.\s]?SUBS`).FindAllStringSubmatch(name, -1)
-		for _, match := range subLanguages {
-			info.Subtitles = append(info.Subtitles, match[1])
-		}
-
-		// If no specific languages found, just note that it has subtitles
-		if len(info.Subtitles) == 0 {
-			info.Subtitles = []string{"Unknown"}
-		}
-	}
-}
-
-func extractReleaseGroup(name string) string {
-	// Remove file extension
-	name = regexp.MustCompile(`\.[a-zA-Z0-9]+$`).ReplaceAllString(name, "")
-
-	// Allow for dash-separated group at end, optionally followed by bracketed tags
-	pattern := `-([a-zA-Z0-9]+)(\[[^\]]+\])?$` // -GROUP or -GROUP[bracket]
-
-	if match := regexp.MustCompile(pattern).FindStringSubmatch(name); match != nil {
-		group := match[1]
-		// Validate it looks like a release group (not a quality tag)
-		if !isQualityTag(group) && len(group) >= 2 {
-			return group
-		}
-	}
-
-	return ""
-}
-
 func extractTitle(name string, info *TorrentInfo) string {
-	title := name
-
-	// Find the earliest index of clearly metadata patterns only
-	// Don't use status/edition patterns here as they can be part of titles
-	indices := []int{}
-	patterns := []*regexp.Regexp{
-		seasonPattern, seasonAltPattern, episodePattern, altEpisodePattern,
+	// For backward compatibility, compute metadata start position
+	// Find the earliest position of "safe" metadata patterns
+	safePatterns := []*regexp.Regexp{
 		resolutionPattern, sourcePattern, codecPattern, audioPattern,
+		seasonPattern, seasonAltPattern, episodePattern, altEpisodePattern,
 		languagePattern, datePattern,
 	}
 
-	for _, pat := range patterns {
-		if idx := pat.FindStringIndex(title); idx != nil {
-			indices = append(indices, idx[0])
-		}
-	}
-
-	// Also consider the release year position if it's set
-	if info.Year > 0 {
-		yearStr := strconv.Itoa(info.Year)
-		yearRegex := regexp.MustCompile(`\b` + regexp.QuoteMeta(yearStr) + `\b`)
-		matches := yearRegex.FindAllStringIndex(title, -1)
-		if len(matches) > 0 {
-			// Use the last occurrence of the release year (in case there are multiple)
-			last := matches[len(matches)-1]
-			indices = append(indices, last[0])
-		}
-	}
-
-	if len(indices) > 0 {
-		minIdx := indices[0]
-		for _, idx := range indices {
-			if idx < minIdx {
-				minIdx = idx
+	earliestPos := -1
+	for _, pat := range safePatterns {
+		if match := pat.FindStringIndex(name); match != nil {
+			if earliestPos == -1 || match[0] < earliestPos {
+				earliestPos = match[0]
 			}
 		}
-		title = title[:minIdx]
 	}
 
-	// Clean up the title
-	title = cleanString(title)
+	// Also consider release year position
+	yearMatches := yearPattern.FindAllStringIndex(name, -1)
+	if len(yearMatches) > 0 {
+		// Use the last year as release year (most likely to be the actual release year)
+		releaseYearPos := yearMatches[len(yearMatches)-1][0]
+		if earliestPos == -1 || releaseYearPos < earliestPos {
+			earliestPos = releaseYearPos
+		}
+	}
 
-	return strings.TrimSpace(title)
+	return extractTitleFromPosition(name, earliestPos)
+}
+
+func extractTitleFromPosition(name string, metadataStartPos int) string {
+	title := name
+	if metadataStartPos >= 0 {
+		title = title[:metadataStartPos]
+	}
+	// Trim trailing separators (dot, space, dash, underscore)
+	title = strings.TrimRight(title, ". -_")
+	return strings.TrimSpace(cleanString(title))
 }
 
 func cleanString(s string) string {
@@ -390,69 +733,58 @@ func isQualityTag(s string) bool {
 }
 
 func (info *TorrentInfo) calculateConfidence() {
-	conf := 0.0
+	conf := 0
 	// Required fields
 	if info.Title != "" {
-		conf += 0.4
+		conf += 40
 	}
 	if info.Year != 0 {
-		conf += 0.2
+		conf += 20
 	}
 	if info.Resolution != "" {
-		conf += 0.1
+		conf += 10
 	}
 	if info.Source != "" {
-		conf += 0.1
+		conf += 10
 	}
 	if info.Codec != "" {
-		conf += 0.1
+		conf += 10
 	}
 	if info.ReleaseGroup != "" {
-		conf += 0.1
+		conf += 10
 	}
 	// Optional fields
 	if info.Season != 0 {
-		conf += 0.05
+		conf += 5
 	}
 	if len(info.Episodes) > 0 {
-		conf += 0.05
+		conf += 5
 	}
 	if info.Container != "" {
-		conf += 0.05
+		conf += 5
 	}
 	if info.Language != "" {
-		conf += 0.05
+		conf += 5
 	}
 	if info.Edition != "" {
-		conf += 0.05
+		conf += 5
 	}
-	if info.IsComplete || info.IsProper || info.IsRepack || info.IsHardcoded {
-		conf += 0.05
+	if info.IsComplete {
+		conf += 5
 	}
-	// Clamp to nearest of 1.0, 0.8, 0.4, 0.1
-	choices := []float64{1.0, 0.8, 0.4, 0.1}
-	closest := choices[0]
-	minDiff := 1.0
-	for _, c := range choices {
-		diff := conf - c
-		if diff < 0 {
-			diff = -diff
-		}
-		if diff < minDiff {
-			minDiff = diff
-			closest = c
-		}
+	if info.IsProper {
+		conf += 5
 	}
-	info.Confidence = closest
-}
+	if info.IsRepack {
+		conf += 5
+	}
+	if info.IsHardcoded {
+		conf += 5
+	}
 
-func getCurrentYear() int {
-	return time.Now().Year()
-}
-
-func min(a, b float64) float64 {
-	if a < b {
-		return a
+	// Cap at 100
+	if conf > 100 {
+		conf = 100
 	}
-	return b
+	info.Confidence = float64(conf) / 100.0
 }
