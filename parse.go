@@ -2,11 +2,19 @@
 package torrentname
 
 import (
-	"slices"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+)
+
+// Confidence scoring weights
+const (
+	YearSeasonWeight   = 40
+	ResolutionWeight   = 20
+	SourceWeight       = 10
+	ReleaseGroupWeight = 10
+	MinorFieldWeight   = 1
 )
 
 // TorrentInfo contains all metadata parsed from a torrent name
@@ -29,7 +37,7 @@ type TorrentInfo struct {
 	IsRepack     bool     `json:"is_repack,omitempty"`
 	IsHardcoded  bool     `json:"is_hardcoded,omitempty"`
 	Edition      string   `json:"edition,omitempty"`  // Director's Cut, Extended, etc.
-	Confidence   float64  `json:"confidence"`         // 0.0 to 1.0
+	Confidence   int      `json:"confidence"`         // 0 to 100
 	Unparsed     string   `json:"unparsed,omitempty"` // Everything after metadata start that isn't metadata
 }
 
@@ -68,8 +76,10 @@ var (
 	releaseGroupPattern = regexp.MustCompile(`-([a-zA-Z0-9]+)(\[[^\]]+\])?$`)
 
 	// Tracker-specific patterns
-	btnSeasonPack = regexp.MustCompile(`(?i)S(\d{1,2})[\.\s]?Complete`)
-	ptnYearRange  = regexp.MustCompile(`(\d{4})-(\d{4})`)
+	btnSeasonPack     = regexp.MustCompile(`(?i)S(\d{1,2})[\.\s]?Complete`)
+	ptnYearRange      = regexp.MustCompile(`(\d{4})-(\d{4})`)
+	monoStereoPattern = regexp.MustCompile(`(?i)\b(Mono|Stereo)\b`)
+	channelPattern    = regexp.MustCompile(`(?i)\b(1\.0|2\.0|2\.1|3\.0|4\.0|5\.1|6\.0|6\.1|7\.0|7\.1|8\.1|9\.1|10\.2)\b`)
 )
 
 // Parse analyzes a torrent name and extracts metadata
@@ -84,6 +94,15 @@ func Parse(name string) *TorrentInfo {
 		info.Container = strings.ToLower(last[1])
 		// Remove extension for further parsing
 		name = name[:strings.LastIndex(name, last[0])]
+	}
+
+	// Extract date early for daily shows (but not year - let metadata boundary detection handle it)
+	if match := datePattern.FindString(name); match != "" {
+		info.Date = strings.ReplaceAll(match, "-", ".")
+		if year, err := strconv.Atoi(match[:4]); err == nil && year >= 1895 && year <= time.Now().Year() {
+			info.Year = year
+		}
+		name = strings.Replace(name, match, "", 1)
 	}
 
 	// Find metadata boundary using three-phase approach
@@ -170,13 +189,6 @@ func scanDefiniteMetadata(name string, info *TorrentInfo, startPos int) int {
 			}
 			return false
 		}},
-		{audioPattern, func(match string, info *TorrentInfo) bool {
-			if info.Audio == "" {
-				info.Audio = strings.ToUpper(match)
-				return true
-			}
-			return false
-		}},
 		{episodePattern, func(match string, info *TorrentInfo) bool {
 			if info.Episode == 0 {
 				// Extract season from the same pattern
@@ -224,6 +236,16 @@ func scanDefiniteMetadata(name string, info *TorrentInfo, startPos int) int {
 					info.Year = year
 				}
 				return true
+			}
+			return false
+		}},
+		{btnSeasonPack, func(match string, info *TorrentInfo) bool {
+			if info.Season == 0 && !info.IsComplete {
+				if submatch := btnSeasonPack.FindStringSubmatch(match); submatch != nil {
+					info.Season, _ = strconv.Atoi(submatch[1])
+					info.IsComplete = true
+					return true
+				}
 			}
 			return false
 		}},
@@ -277,10 +299,22 @@ func scanDefiniteMetadata(name string, info *TorrentInfo, startPos int) int {
 func scanPossibleMetadataPhase1(name string, info *TorrentInfo, startPos int) int {
 	metadataStartPos := startPos
 
-	// Possible metadata patterns
+	// Debug: Print metadata boundary at start of step 2
+	println("DEBUG: Step 2 start - metadata boundary at position:", metadataStartPos, "in:", name)
+	if metadataStartPos < len(name) {
+		println("DEBUG: Text after boundary:", name[metadataStartPos:])
+	} else {
+		println("DEBUG: No text after boundary")
+	}
+
+	// Temporary slice to collect audio tokens in scan order
+	audioTokens := []string{}
+
+	// All possible metadata patterns (including non-extending metadata like audio)
 	patterns := []struct {
 		pattern *regexp.Regexp
 		handler func(string, *TorrentInfo) bool
+		isAudio bool // new: mark if this is an audio pattern
 	}{
 		{yearPattern, func(match string, info *TorrentInfo) bool {
 			if info.Year == 0 {
@@ -290,7 +324,7 @@ func scanPossibleMetadataPhase1(name string, info *TorrentInfo, startPos int) in
 				}
 			}
 			return false
-		}},
+		}, false},
 		{editionPattern, func(match string, info *TorrentInfo) bool {
 			if info.Edition == "" {
 				// Normalize multi-word editions by replacing dots with spaces
@@ -299,42 +333,42 @@ func scanPossibleMetadataPhase1(name string, info *TorrentInfo, startPos int) in
 				return true
 			}
 			return false
-		}},
+		}, false},
 		{completePattern, func(match string, info *TorrentInfo) bool {
 			if !info.IsComplete {
 				info.IsComplete = true
 				return true
 			}
 			return false
-		}},
+		}, false},
 		{properPattern, func(match string, info *TorrentInfo) bool {
 			if !info.IsProper {
 				info.IsProper = true
 				return true
 			}
 			return false
-		}},
+		}, false},
 		{repackPattern, func(match string, info *TorrentInfo) bool {
 			if !info.IsRepack {
 				info.IsRepack = true
 				return true
 			}
 			return false
-		}},
+		}, false},
 		{hardcodedPattern, func(match string, info *TorrentInfo) bool {
 			if !info.IsHardcoded {
 				info.IsHardcoded = true
 				return true
 			}
 			return false
-		}},
+		}, false},
 		{languagePattern, func(match string, info *TorrentInfo) bool {
 			if info.Language == "" {
 				info.Language = strings.Title(strings.ToLower(match))
 				return true
 			}
 			return false
-		}},
+		}, false},
 		{subsPattern, func(match string, info *TorrentInfo) bool {
 			if len(info.Subtitles) == 0 {
 				// Try to find specific subtitle languages
@@ -350,7 +384,7 @@ func scanPossibleMetadataPhase1(name string, info *TorrentInfo, startPos int) in
 				return true
 			}
 			return false
-		}},
+		}, false},
 		{releaseGroupPattern, func(match string, info *TorrentInfo) bool {
 			if info.ReleaseGroup == "" {
 				if submatch := releaseGroupPattern.FindStringSubmatch(match); submatch != nil {
@@ -362,7 +396,23 @@ func scanPossibleMetadataPhase1(name string, info *TorrentInfo, startPos int) in
 				}
 			}
 			return false
-		}},
+		}, false},
+		{monoStereoPattern, func(match string, info *TorrentInfo) bool {
+			// audioTokens handled outside
+			return true
+		}, true},
+		{channelPattern, func(match string, info *TorrentInfo) bool {
+			// audioTokens handled outside
+			return true
+		}, true},
+		{audioPattern, func(match string, info *TorrentInfo) bool {
+			// audioTokens handled outside
+			return true
+		}, true},
+		{regexp.MustCompile(`(?i)\b(ATMOS|DTS-X|DTS-HD|DTS-HD MA|DTS-ES|DD\+|DD|EAC3)\b`), func(match string, info *TorrentInfo) bool {
+			// audioTokens handled outside
+			return true
+		}, true},
 	}
 
 	// Find all matches and sort by position (descending for back-to-front scan)
@@ -397,12 +447,23 @@ func scanPossibleMetadataPhase1(name string, info *TorrentInfo, startPos int) in
 		}
 
 		matchText := name[match.start:match.end]
+		if patterns[match.pattern].isAudio {
+			audioTokens = append(audioTokens, strings.ToUpper(matchText))
+		}
 		if patterns[match.pattern].handler(matchText, info) {
 			// New metadata found, but don't update start position in step 2
 		} else {
 			// Duplicate metadata found, terminate scan
 			break
 		}
+	}
+
+	// After scan, reverse audioTokens and join
+	if len(audioTokens) > 0 {
+		for i, j := 0, len(audioTokens)-1; i < j; i, j = i+1, j-1 {
+			audioTokens[i], audioTokens[j] = audioTokens[j], audioTokens[i]
+		}
+		info.Audio = strings.Join(audioTokens, " ")
 	}
 
 	return metadataStartPos
@@ -412,7 +473,8 @@ func scanPossibleMetadataPhase1(name string, info *TorrentInfo, startPos int) in
 func scanPossibleMetadataPhase2(name string, info *TorrentInfo, startPos int) int {
 	metadataStartPos := startPos
 
-	// Possible metadata patterns (same as phase 1)
+	// Extending metadata patterns (can be found in step 3)
+	// These are metadata that can extend the title boundary backwards
 	patterns := []struct {
 		pattern *regexp.Regexp
 		handler func(string, *TorrentInfo) bool
@@ -525,7 +587,7 @@ func scanPossibleMetadataPhase2(name string, info *TorrentInfo, startPos int) in
 		}
 	}
 
-	// Process matches from current metadata start towards beginning
+	// Process matches from current metadata start towards beginning (scanning backwards)
 	for _, match := range matches {
 		if match.start >= metadataStartPos {
 			continue // Skip if already past our metadata start
@@ -603,6 +665,12 @@ func extractUnparsedContent(name string, metadataStartPos int) string {
 		resolutionPattern, sourcePattern, codecPattern, audioPattern,
 		languagePattern, completePattern, properPattern, repackPattern, hardcodedPattern,
 		editionPattern, yearPattern, releaseGroupPattern,
+		seasonPattern, seasonAltPattern, episodePattern, altEpisodePattern,
+		monoStereoPattern, channelPattern,
+		// Audio channel enhancements
+		regexp.MustCompile(`(?i)\b(ATMOS|DTS-X|DTS-HD|DTS-HD MA|DTS-ES|DD\+|DD|EAC3)\b`),
+		// Date component patterns
+		regexp.MustCompile(`(?i)\b\d{1,2}\.\d{1,2}\b`), // 10.15, 12.25, etc.
 	}
 
 	// Remove all metadata from the unparsed content
@@ -610,6 +678,9 @@ func extractUnparsedContent(name string, metadataStartPos int) string {
 	for _, pattern := range metadataPatterns {
 		result = pattern.ReplaceAllString(result, "")
 	}
+
+	// Remove leftover episode-only codes like E01, E02, etc.
+	result = regexp.MustCompile(`(?i)\bE\d{1,3}\b`).ReplaceAllString(result, "")
 
 	// Clean up extra spaces and separators
 	result = strings.ReplaceAll(result, ".", " ")
@@ -649,10 +720,10 @@ func ParseWithHints(name string, tracker string) *TorrentInfo {
 
 	case "hdb", "hdbits":
 		// HDBits has very standardized naming
-		if info.Confidence*1.1 < 1.0 {
-			info.Confidence = info.Confidence * 1.1
+		if info.Confidence*11 < 100 {
+			info.Confidence = info.Confidence * 11 / 10
 		} else {
-			info.Confidence = 1.0
+			info.Confidence = 100
 		}
 	}
 
@@ -735,76 +806,74 @@ func isQualityTag(s string) bool {
 
 func (info *TorrentInfo) calculateConfidence() {
 	conf := 0
-	// Required fields
-	if info.Title != "" {
-		conf += 40
+	// Year or Season (or both)
+	if info.Year != 0 || info.Season != 0 {
+		conf += YearSeasonWeight
 	}
-	if info.Year != 0 {
-		conf += 20
-	}
+	// Resolution
 	if info.Resolution != "" {
-		conf += 10
+		conf += ResolutionWeight
 	}
+	// Source
 	if info.Source != "" {
-		conf += 10
+		conf += SourceWeight
+	}
+	// ReleaseGroup
+	if info.ReleaseGroup != "" {
+		conf += ReleaseGroupWeight
+	}
+	// Minor fields (1 point each)
+	if info.Episode != 0 {
+		conf += MinorFieldWeight
 	}
 	if info.Codec != "" {
-		conf += 10
+		conf += MinorFieldWeight
 	}
-	if info.ReleaseGroup != "" {
-		conf += 10
-	}
-	// Optional fields
-	if info.Season != 0 {
-		conf += 5
-	}
-	if info.Episode != 0 {
-		conf += 5
+	if info.Audio != "" {
+		conf += MinorFieldWeight
 	}
 	if info.Container != "" {
-		conf += 5
+		conf += MinorFieldWeight
 	}
 	if info.Language != "" {
-		conf += 5
+		conf += MinorFieldWeight
 	}
 	if info.Edition != "" {
-		conf += 5
+		conf += MinorFieldWeight
 	}
 	if info.IsComplete {
-		conf += 5
+		conf += MinorFieldWeight
 	}
 	if info.IsProper {
-		conf += 5
+		conf += MinorFieldWeight
 	}
 	if info.IsRepack {
-		conf += 5
+		conf += MinorFieldWeight
 	}
 	if info.IsHardcoded {
-		conf += 5
+		conf += MinorFieldWeight
 	}
 
 	// Cap at 100
 	if conf > 100 {
 		conf = 100
 	}
-	info.Confidence = float64(conf) / 100.0
+	info.Confidence = conf
 }
 
 // NormalizeTitle removes common variations for matching
 func NormalizeTitle(title string) string {
-	// Convert to lowercase
-	normalized := strings.ToLower(title)
+	// Replace all non-alphanumeric characters with spaces
+	title = regexp.MustCompile(`[^a-zA-Z0-9\s]`).ReplaceAllString(title, " ")
 
-	// Remove special characters except spaces
-	normalized = regexp.MustCompile(`[^\w\s]`).ReplaceAllString(normalized, " ")
+	// Convert to lowercase and split into words
+	words := strings.Fields(strings.ToLower(title))
 
 	// Remove common words
-	commonWords := []string{"the", "a", "an", "and", "or", "of"}
-	words := strings.Fields(normalized)
+	commonWords := map[string]bool{"the": true, "a": true, "an": true, "and": true, "or": true, "of": true}
 	filtered := []string{}
 	for _, word := range words {
-		isCommon := slices.Contains(commonWords, word)
-		if !isCommon {
+		if !commonWords[word] {
 			filtered = append(filtered, word)
 		}
 	}
@@ -812,7 +881,12 @@ func NormalizeTitle(title string) string {
 	return strings.Join(filtered, " ")
 }
 
-// MatchTitles checks if two titles likely refer to the same content
+// Recommended threshold for title matching using Dice coefficient.
+// Titles with similarity >= this value are considered a match.
+const TitleMatchThreshold = 0.8
+
+// MatchTitles checks if two titles likely refer to the same content.
+// Uses Dice coefficient for similarity and TitleMatchThreshold as the default threshold for a match.
 func MatchTitles(title1, title2 string, threshold float64) bool {
 	norm1 := NormalizeTitle(title1)
 	norm2 := NormalizeTitle(title2)
@@ -822,12 +896,12 @@ func MatchTitles(title1, title2 string, threshold float64) bool {
 		return true
 	}
 
-	// Calculate similarity ratio
+	// Calculate similarity ratio (Dice coefficient)
 	similarity := calculateSimilarity(norm1, norm2)
 	return similarity >= threshold
 }
 
-// Simple similarity calculation (Jaccard index)
+// Simple similarity calculation (Dice coefficient)
 func calculateSimilarity(s1, s2 string) float64 {
 	words1 := strings.Fields(s1)
 	words2 := strings.Fields(s2)
@@ -843,7 +917,7 @@ func calculateSimilarity(s1, s2 string) float64 {
 		set2[w] = true
 	}
 
-	// Calculate intersection and union
+	// Calculate intersection
 	intersection := 0
 	for w := range set1 {
 		if set2[w] {
@@ -851,10 +925,11 @@ func calculateSimilarity(s1, s2 string) float64 {
 		}
 	}
 
-	union := len(set1) + len(set2) - intersection
-	if union == 0 {
+	// Use Dice coefficient: 2*intersection/(len1+len2)
+	total := len(set1) + len(set2)
+	if total == 0 {
 		return 0
 	}
 
-	return float64(intersection) / float64(union)
+	return 2.0 * float64(intersection) / float64(total)
 }

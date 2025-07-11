@@ -39,6 +39,9 @@ func main() {
 		// Display results
 		displayInfo(info)
 
+		// Show confidence calculation logic
+		fmt.Printf("  (Confidence is calculated as: +40 for Year/Season, +20 for Resolution, +10 for Source, +10 for ReleaseGroup, +1 for each minor field)\n")
+
 		// Example with tracker hints
 		if len(os.Args) == 1 {
 			fmt.Println("\nWith BTN hint:")
@@ -64,6 +67,7 @@ func main() {
 		fmt.Println("\n\nTitle Normalization and Matching Examples:")
 		fmt.Println("==========================================")
 
+		// Normalization replaces all non-alphanumeric characters with spaces, removes common words, and collapses whitespace.
 		title1 := "The.Matrix.1999.1080p.BluRay.x264-SPARKS"
 		title2 := "The Matrix"
 		title3 := "Matrix Reloaded"
@@ -79,6 +83,7 @@ func main() {
 		fmt.Printf("Original: %q\n", title3)
 		fmt.Printf("Normalized: %q\n", normalized3)
 
+		// Similarity uses the Dice coefficient; default threshold is 0.8
 		fmt.Printf("\nMatching %q and %q (threshold 0.8): %v\n", title1, title2, torrentname.MatchTitles(title1, title2, 0.8))
 		fmt.Printf("Matching %q and %q (threshold 0.8): %v\n", title1, title3, torrentname.MatchTitles(title1, title3, 0.8))
 		fmt.Printf("Matching %q and %q (threshold 0.3): %v\n", title1, title3, torrentname.MatchTitles(title1, title3, 0.3))
@@ -155,5 +160,5 @@ func displayInfo(info *torrentname.TorrentInfo) {
 		fmt.Printf("  Flags:         %v\n", flags)
 	}
 
-	fmt.Printf("  Confidence:    %.1f%%\n", info.Confidence*100)
+	fmt.Printf("  Confidence:    %d%%\n", info.Confidence)
 }

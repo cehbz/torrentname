@@ -1,6 +1,7 @@
 package torrentname
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -34,7 +35,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H265",
 				ReleaseGroup: "RARBG",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -48,7 +49,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "ROVERS",
-				Confidence:   0.9,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -62,7 +63,7 @@ func TestParse(t *testing.T) {
 				Codec:        "H264",
 				IsProper:     true,
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -74,9 +75,9 @@ func TestParse(t *testing.T) {
 				Resolution:   "2160p",
 				Source:       "BluRay",
 				Codec:        "H265",
-				Audio:        "TRUEHD",
+				Audio:        "TRUEHD 7.1 ATMOS",
 				ReleaseGroup: "COASTER",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -91,7 +92,7 @@ func TestParse(t *testing.T) {
 				Codec:        "H265",
 				Container:    "mkv",
 				ReleaseGroup: "RARBG",
-				Confidence:   0.95,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -105,7 +106,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -120,7 +121,7 @@ func TestParse(t *testing.T) {
 				Codec:        "H264",
 				Audio:        "DTS",
 				ReleaseGroup: "FGT",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -133,7 +134,8 @@ func TestParse(t *testing.T) {
 				Resolution: "720p",
 				Source:     "HDTV",
 				Codec:      "H264",
-				Confidence: 0.8,
+				Unparsed:   "Pilot",
+				Confidence: YearSeasonWeight + ResolutionWeight + SourceWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -145,7 +147,7 @@ func TestParse(t *testing.T) {
 				Source:       "CAM",
 				Codec:        "H264",
 				ReleaseGroup: "ETRG",
-				Confidence:   0.9,
+				Confidence:   YearSeasonWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -160,7 +162,7 @@ func TestParse(t *testing.T) {
 				Source:       "WEBRip",
 				Codec:        "H264",
 				ReleaseGroup: "METCON",
-				Confidence:   0.95,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -173,7 +175,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -186,7 +188,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -198,7 +200,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   0.8,
+				Confidence:   ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -211,7 +213,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -224,7 +226,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -237,7 +239,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -250,7 +252,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -262,7 +264,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   0.8,
+				Confidence:   ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -274,7 +276,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   0.8,
+				Confidence:   ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -286,7 +288,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   0.8,
+				Confidence:   ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -298,7 +300,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   0.8,
+				Confidence:   ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -311,7 +313,7 @@ func TestParse(t *testing.T) {
 				IsHardcoded: true,
 				Resolution:  "1080p",
 				Source:      "WEBRip",
-				Confidence:  0.75,
+				Confidence:  YearSeasonWeight + ResolutionWeight + SourceWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -323,7 +325,7 @@ func TestParse(t *testing.T) {
 				Date:       "2023.10.15",
 				Resolution: "1080p",
 				Source:     "WEBRip",
-				Confidence: 0.8,
+				Confidence: YearSeasonWeight + ResolutionWeight + SourceWeight,
 			},
 		},
 		{
@@ -336,7 +338,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -349,7 +351,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -363,7 +365,7 @@ func TestParse(t *testing.T) {
 				Codec:        "H264",
 				Container:    "mp4",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -376,7 +378,7 @@ func TestParse(t *testing.T) {
 				Source:     "HDTV",
 				Codec:      "H264",
 				Container:  "avi",
-				Confidence: 0.95,
+				Confidence: YearSeasonWeight + ResolutionWeight + SourceWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -388,7 +390,7 @@ func TestParse(t *testing.T) {
 				Date:       "2023.10.15",
 				Resolution: "1080p",
 				Source:     "WEBRip",
-				Confidence: 0.8,
+				Confidence: YearSeasonWeight + ResolutionWeight + SourceWeight,
 			},
 		},
 		{
@@ -402,7 +404,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H265",
 				ReleaseGroup: "RARBG",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -415,7 +417,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -428,7 +430,7 @@ func TestParse(t *testing.T) {
 				Source:       "HDTV",
 				Codec:        "H264",
 				ReleaseGroup: "ROVERS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -441,7 +443,7 @@ func TestParse(t *testing.T) {
 				Source:       "WEB-DL",
 				Codec:        "H264",
 				ReleaseGroup: "FGT",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -454,7 +456,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -467,7 +469,7 @@ func TestParse(t *testing.T) {
 				Source:       "WEBRip",
 				Codec:        "H265",
 				ReleaseGroup: "RARBG",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -480,7 +482,7 @@ func TestParse(t *testing.T) {
 				Source:       "HDTV",
 				Codec:        "H264",
 				ReleaseGroup: "ETRG",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -493,7 +495,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "COASTER",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -506,7 +508,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "SPARKS",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -514,7 +516,7 @@ func TestParse(t *testing.T) {
 			input: "Some Movie",
 			expected: &TorrentInfo{
 				Title:      "Some Movie",
-				Confidence: 0.4,
+				Confidence: 0,
 			},
 		},
 		{
@@ -524,7 +526,7 @@ func TestParse(t *testing.T) {
 				Title:      "Avatar",
 				Year:       2009,
 				Resolution: "1080p",
-				Confidence: 0.7,
+				Confidence: YearSeasonWeight + ResolutionWeight,
 			},
 		},
 		{
@@ -538,7 +540,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "DEMAND",
-				Confidence:   0.9,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -552,7 +554,7 @@ func TestParse(t *testing.T) {
 				Audio:        "DTS",
 				Codec:        "H264",
 				ReleaseGroup: "ESiR",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -565,7 +567,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "GROUP",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -578,7 +580,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "GROUP",
-				Confidence:   0.85,
+				Confidence:   ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -592,7 +594,7 @@ func TestParse(t *testing.T) {
 				Source:       "HDTV",
 				Codec:        "H264",
 				ReleaseGroup: "GROUP",
-				Confidence:   0.9,
+				Confidence:   ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -605,7 +607,7 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "GROUP",
-				Confidence:   1.0,
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 		{
@@ -618,7 +620,53 @@ func TestParse(t *testing.T) {
 				Source:       "BluRay",
 				Codec:        "H264",
 				ReleaseGroup: "GROUP",
-				Confidence:   0.85,
+				Confidence:   ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight,
+			},
+		},
+		{
+			name:  "tv episode with unparsed title",
+			input: "Breaking Bad S01E01 Pilot 1080p",
+			expected: &TorrentInfo{
+				Title:      "Breaking Bad",
+				Season:     1,
+				Episode:    1,
+				Resolution: "1080p",
+				Unparsed:   "Pilot",
+				Confidence: YearSeasonWeight + ResolutionWeight + MinorFieldWeight,
+			},
+		},
+		{
+			name:  "movie with 2.0 in title and audio metadata",
+			input: "Godzilla 2.0 1080p TrueHD 7.1 Atmos",
+			expected: &TorrentInfo{
+				Title:      "Godzilla 2 0",
+				Resolution: "1080p",
+				Audio:      "TRUEHD 7.1 ATMOS",
+				Confidence: ResolutionWeight + MinorFieldWeight,
+			},
+		},
+		{
+			name:  "mono audio after metadata boundary",
+			input: "Classic.Movie.1950.480p.DVD.Mono.x264-GROUP",
+			expected: &TorrentInfo{
+				Title:        "Classic Movie",
+				Year:         1950,
+				Resolution:   "480p",
+				Source:       "DVD",
+				Audio:        "MONO",
+				Codec:        "H264",
+				ReleaseGroup: "GROUP",
+				Confidence:   YearSeasonWeight + ResolutionWeight + SourceWeight + ReleaseGroupWeight + MinorFieldWeight + MinorFieldWeight,
+			},
+		},
+		{
+			name:  "duplicate definitely metadata",
+			input: "Some.Movie.2020.1080p.720p.BluRay.WEB.x264.H265-GROUP",
+			expected: &TorrentInfo{
+				Title:        "Some Movie 2020 1080p 720p BluRay WEB x264",
+				Codec:        "H265", // First codec found (back-to-front scan)
+				ReleaseGroup: "GROUP",
+				Confidence:   ReleaseGroupWeight + MinorFieldWeight,
 			},
 		},
 	}
@@ -627,62 +675,80 @@ func TestParse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := Parse(tt.input)
 
-			// Compare major fields
-			if result.Title != tt.expected.Title {
-				t.Errorf("Title: got %q, want %q", result.Title, tt.expected.Title)
-			}
-			if result.Year != tt.expected.Year {
-				t.Errorf("Year: got %d, want %d", result.Year, tt.expected.Year)
-			}
-			if result.Date != tt.expected.Date {
-				t.Errorf("Date: got %q, want %q", result.Date, tt.expected.Date)
-			}
-			if result.Season != tt.expected.Season {
-				t.Errorf("Season: got %d, want %d", result.Season, tt.expected.Season)
-			}
-			if result.Episode != tt.expected.Episode {
-				t.Errorf("Episode: got %d, want %d", result.Episode, tt.expected.Episode)
-			}
-			if result.Resolution != tt.expected.Resolution {
-				t.Errorf("Resolution: got %q, want %q", result.Resolution, tt.expected.Resolution)
-			}
-			if result.Source != tt.expected.Source {
-				t.Errorf("Source: got %q, want %q", result.Source, tt.expected.Source)
-			}
-			if result.Codec != tt.expected.Codec {
-				t.Errorf("Codec: got %q, want %q", result.Codec, tt.expected.Codec)
-			}
-			if result.Audio != tt.expected.Audio {
-				t.Errorf("Audio: got %q, want %q", result.Audio, tt.expected.Audio)
-			}
-			if result.ReleaseGroup != tt.expected.ReleaseGroup {
-				t.Errorf("ReleaseGroup: got %q, want %q", result.ReleaseGroup, tt.expected.ReleaseGroup)
-			}
-			if result.Container != tt.expected.Container {
-				t.Errorf("Container: got %q, want %q", result.Container, tt.expected.Container)
-			}
-			if result.Language != tt.expected.Language {
-				t.Errorf("Language: got %q, want %q", result.Language, tt.expected.Language)
-			}
-			if result.IsComplete != tt.expected.IsComplete {
-				t.Errorf("IsComplete: got %v, want %v", result.IsComplete, tt.expected.IsComplete)
-			}
-			if result.IsProper != tt.expected.IsProper {
-				t.Errorf("IsProper: got %v, want %v", result.IsProper, tt.expected.IsProper)
-			}
-			if result.IsRepack != tt.expected.IsRepack {
-				t.Errorf("IsRepack: got %v, want %v", result.IsRepack, tt.expected.IsRepack)
-			}
-			if result.IsHardcoded != tt.expected.IsHardcoded {
-				t.Errorf("IsHardcoded: got %v, want %v", result.IsHardcoded, tt.expected.IsHardcoded)
-			}
-			if result.Edition != tt.expected.Edition {
-				t.Errorf("Edition: got %q, want %q", result.Edition, tt.expected.Edition)
-			}
-			if result.Confidence != tt.expected.Confidence {
-				t.Errorf("Confidence: got %f, want %f", result.Confidence, tt.expected.Confidence)
-			}
+			// Full struct comparison
+			compareTorrentInfo(t, result, tt.expected)
 		})
+	}
+}
+
+// compareTorrentInfo checks all fields for equality, including omitempty and slices
+func compareTorrentInfo(t *testing.T, got, want *TorrentInfo) {
+	if got == nil && want == nil {
+		return
+	}
+	if got == nil || want == nil {
+		t.Errorf("TorrentInfo: got %v, want %v", got, want)
+		return
+	}
+	if got.Title != want.Title {
+		t.Errorf("Title: got %q, want %q", got.Title, want.Title)
+	}
+	if got.Year != want.Year {
+		t.Errorf("Year: got %d, want %d", got.Year, want.Year)
+	}
+	if got.Date != want.Date {
+		t.Errorf("Date: got %q, want %q", got.Date, want.Date)
+	}
+	if got.Season != want.Season {
+		t.Errorf("Season: got %d, want %d", got.Season, want.Season)
+	}
+	if got.Episode != want.Episode {
+		t.Errorf("Episode: got %d, want %d", got.Episode, want.Episode)
+	}
+	if got.Resolution != want.Resolution {
+		t.Errorf("Resolution: got %q, want %q", got.Resolution, want.Resolution)
+	}
+	if got.Source != want.Source {
+		t.Errorf("Source: got %q, want %q", got.Source, want.Source)
+	}
+	if got.Codec != want.Codec {
+		t.Errorf("Codec: got %q, want %q", got.Codec, want.Codec)
+	}
+	if got.Audio != want.Audio {
+		t.Errorf("Audio: got %q, want %q", got.Audio, want.Audio)
+	}
+	if got.ReleaseGroup != want.ReleaseGroup {
+		t.Errorf("ReleaseGroup: got %q, want %q", got.ReleaseGroup, want.ReleaseGroup)
+	}
+	if got.Container != want.Container {
+		t.Errorf("Container: got %q, want %q", got.Container, want.Container)
+	}
+	if got.Language != want.Language {
+		t.Errorf("Language: got %q, want %q", got.Language, want.Language)
+	}
+	if !reflect.DeepEqual(got.Subtitles, want.Subtitles) {
+		t.Errorf("Subtitles: got %v, want %v", got.Subtitles, want.Subtitles)
+	}
+	if got.IsComplete != want.IsComplete {
+		t.Errorf("IsComplete: got %v, want %v", got.IsComplete, want.IsComplete)
+	}
+	if got.IsProper != want.IsProper {
+		t.Errorf("IsProper: got %v, want %v", got.IsProper, want.IsProper)
+	}
+	if got.IsRepack != want.IsRepack {
+		t.Errorf("IsRepack: got %v, want %v", got.IsRepack, want.IsRepack)
+	}
+	if got.IsHardcoded != want.IsHardcoded {
+		t.Errorf("IsHardcoded: got %v, want %v", got.IsHardcoded, want.IsHardcoded)
+	}
+	if got.Edition != want.Edition {
+		t.Errorf("Edition: got %q, want %q", got.Edition, want.Edition)
+	}
+	if got.Confidence != want.Confidence {
+		t.Errorf("Confidence: got %d, want %d", got.Confidence, want.Confidence)
+	}
+	if got.Unparsed != want.Unparsed {
+		t.Errorf("Unparsed: got %q, want %q", got.Unparsed, want.Unparsed)
 	}
 }
 
@@ -772,28 +838,28 @@ func TestMatchTitles(t *testing.T) {
 			name:      "exact match after normalization",
 			title1:    "The Matrix",
 			title2:    "The Matrix",
-			threshold: 0.8,
+			threshold: TitleMatchThreshold,
 			expected:  true,
 		},
 		{
 			name:      "similar titles with high threshold",
 			title1:    "The Matrix",
 			title2:    "Matrix",
-			threshold: 0.8,
+			threshold: 0.9,
 			expected:  true,
 		},
 		{
 			name:      "similar titles with low threshold",
 			title1:    "The Matrix",
 			title2:    "Matrix",
-			threshold: 0.9,
+			threshold: 0.3,
 			expected:  true,
 		},
 		{
 			name:      "different titles with high threshold",
 			title1:    "The Matrix",
 			title2:    "The Terminator",
-			threshold: 0.8,
+			threshold: 0.9,
 			expected:  false,
 		},
 		{
@@ -801,41 +867,69 @@ func TestMatchTitles(t *testing.T) {
 			title1:    "The Matrix",
 			title2:    "The Terminator",
 			threshold: 0.3,
-			expected:  true,
+			expected:  false,
 		},
 		{
 			name:      "titles with special characters",
-			title1:    "The.Matrix.1999.1080p.BluRay.x264-SPARKS",
+			title1:    "The.Matrix.",
 			title2:    "The Matrix",
-			threshold: 0.8,
+			threshold: TitleMatchThreshold,
 			expected:  true,
 		},
 		{
 			name:      "titles with different formatting",
 			title1:    "The Lord of the Rings",
 			title2:    "Lord of the Rings",
-			threshold: 0.8,
+			threshold: TitleMatchThreshold,
 			expected:  true,
 		},
 		{
 			name:      "completely different titles",
 			title1:    "The Matrix",
 			title2:    "Star Wars",
-			threshold: 0.5,
+			threshold: TitleMatchThreshold,
 			expected:  false,
 		},
 		{
 			name:      "empty titles",
 			title1:    "",
 			title2:    "",
-			threshold: 0.8,
+			threshold: TitleMatchThreshold,
 			expected:  true,
 		},
 		{
 			name:      "one empty title",
 			title1:    "The Matrix",
 			title2:    "",
-			threshold: 0.8,
+			threshold: TitleMatchThreshold,
+			expected:  false,
+		},
+		{
+			name:      "threshold behavior - similar titles with high threshold",
+			title1:    "Matrix",
+			title2:    "Matrix Reloaded",
+			threshold: TitleMatchThreshold,
+			expected:  false,
+		},
+		{
+			name:      "threshold behavior - similar titles with low threshold",
+			title1:    "Matrix",
+			title2:    "Matrix Reloaded",
+			threshold: 0.3,
+			expected:  true,
+		},
+		{
+			name:      "threshold behavior - similar titles with medium threshold",
+			title1:    "Matrix Reloaded",
+			title2:    "Matrix Revolutions",
+			threshold: 0.5,
+			expected:  true,
+		},
+		{
+			name:      "threshold behavior - similar titles with default threshold",
+			title1:    "Matrix Reloaded",
+			title2:    "Matrix Revolutions",
+			threshold: TitleMatchThreshold,
 			expected:  false,
 		},
 	}

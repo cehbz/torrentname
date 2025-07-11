@@ -36,13 +36,13 @@ import (
 
 func main() {
     info := torrentname.Parse("The.Matrix.1999.1080p.BluRay.x264-SPARKS")
-    
     fmt.Printf("Title: %s\n", info.Title)           // The Matrix
     fmt.Printf("Year: %d\n", info.Year)             // 1999
     fmt.Printf("Resolution: %s\n", info.Resolution) // 1080p
     fmt.Printf("Source: %s\n", info.Source)         // BluRay
     fmt.Printf("Codec: %s\n", info.Codec)           // H264
     fmt.Printf("Group: %s\n", info.ReleaseGroup)    // SPARKS
+    fmt.Printf("Confidence: %d\n", info.Confidence) // 81
 }
 ```
 
@@ -53,15 +53,13 @@ func main() {
 info := torrentname.Parse("Breaking.Bad.S01E01.Pilot.1080p.BluRay.x264-ROVERS")
 fmt.Printf("Title: %s\n", info.Title)       // Breaking Bad
 fmt.Printf("Season: %d\n", info.Season)     // 1
-fmt.Printf("Episodes: %v\n", info.Episodes) // [1]
-
-// Multi-episode
-info = torrentname.Parse("The.Wire.S01E01-E03.720p.HDTV.x264")
-fmt.Printf("Episodes: %v\n", info.Episodes) // [1 2 3]
+fmt.Printf("Episode: %d\n", info.Episode)   // 1
+fmt.Printf("Confidence: %d\n", info.Confidence) // 62
 
 // Complete season
 info = torrentname.Parse("Game.of.Thrones.S08.COMPLETE.1080p.BluRay.x264")
 fmt.Printf("Complete: %v\n", info.IsComplete) // true
+fmt.Printf("Confidence: %d\n", info.Confidence) // 62
 ```
 
 ### Tracker-Specific Parsing
@@ -75,13 +73,14 @@ info := torrentname.ParseWithHints(
     "BTN",
 )
 fmt.Printf("Complete: %v\n", info.IsComplete) // true
+fmt.Printf("Confidence: %d\n", info.Confidence) // 62
 
 // HDBits entries get higher confidence scores
 info = torrentname.ParseWithHints(
     "The.Dark.Knight.2008.1080p.BluRay.DTS.x264-ESiR",
     "HDBits",
 )
-fmt.Printf("Confidence: %.1f%%\n", info.Confidence * 100) // 100.0%
+fmt.Printf("Confidence: %d\n", info.Confidence) // 83
 ```
 
 ### Extended Information
@@ -89,14 +88,17 @@ fmt.Printf("Confidence: %.1f%%\n", info.Confidence * 100) // 100.0%
 ```go
 info := torrentname.Parse("The.Lord.of.the.Rings.2001.EXTENDED.1080p.BluRay.x265")
 fmt.Printf("Edition: %s\n", info.Edition) // Extended
+fmt.Printf("Confidence: %d\n", info.Confidence) // 82
 
 info = torrentname.Parse("Parasite.2019.KOREAN.1080p.BluRay.x264.DTS-FGT")
 fmt.Printf("Language: %s\n", info.Language) // Korean
 fmt.Printf("Audio: %s\n", info.Audio)       // DTS
+fmt.Printf("Confidence: %d\n", info.Confidence) // 83
 
 info = torrentname.Parse("Movie.Title.2020.1080p.HC.WEBRip.SUBS")
 fmt.Printf("Hardcoded: %v\n", info.IsHardcoded)     // true
 fmt.Printf("Subtitles: %v\n", len(info.Subtitles))  // 1
+fmt.Printf("Confidence: %d\n", info.Confidence) // 62
 ```
 
 ## Supported Formats
@@ -136,18 +138,44 @@ type TorrentInfo struct {
     IsRepack     bool     // REPACK release  
     IsHardcoded  bool     // Hardcoded subtitles
     Edition      string   // Special edition info
-    Confidence   float64  // Parsing confidence (0.0-1.0)
+    Confidence   int      // Parsing confidence (0-100)
 }
+```
+
+## Title Normalization and Similarity
+
+The parser provides utilities for comparing torrent titles:
+
+- **Normalization**: All non-alphanumeric characters are replaced with spaces, common words (like 'the', 'of', 'and', etc.) are removed, and whitespace is collapsed. This helps ensure consistent matching regardless of punctuation or formatting.
+- **Similarity**: Title similarity is measured using the Dice coefficient, which compares the overlap of word bigrams. The default threshold for `MatchTitles` is 0.8, meaning titles must be highly similar to be considered a match.
+
+Example:
+
+```go
+normalized := torrentname.NormalizeTitle("The.Matrix.1999.1080p.BluRay.x264-SPARKS")
+fmt.Println(normalized) // "matrix"
+
+similar := torrentname.MatchTitles("The Matrix", "Matrix Reloaded", 0.8)
+fmt.Println(similar) // false
 ```
 
 ## Confidence Score
 
-The parser assigns a confidence score (0.0-1.0) based on how much metadata was successfully extracted:
+The parser assigns a confidence score (0-100) based on how much metadata was successfully extracted. The score is an integer percentage, calculated as follows:
 
-- **1.0**: Full metadata (title, year/season, quality, source, group)
-- **0.8**: Most metadata present
-- **0.6**: Basic metadata (title + some quality info)
-- **0.4**: Minimal metadata (title only)
+- **Year/Season**: +40 (if either is present)
+- **Resolution**: +20
+- **Source**: +10
+- **ReleaseGroup**: +10
+- **Minor fields** (each +1): Episode, Codec, Audio, Container, Language, Edition, IsComplete, IsProper, IsRepack, IsHardcoded
+
+The sum is capped at 100. This allows you to gauge how much reliable metadata was extracted from the torrent name.
+
+Example:
+
+- Title, Year, Resolution, Source, Codec, ReleaseGroup → 40 + 20 + 10 + 10 + 1 = **81**
+- Title, Season, Episode, Resolution, Source, Codec, ReleaseGroup, IsComplete → 40 + 20 + 10 + 10 + 1 + 1 = **82**
+- Title, Resolution, Source, Codec → 20 + 10 + 1 = **31**
 
 ## Running the Example
 
