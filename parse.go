@@ -84,6 +84,14 @@ var (
 
 // Parse analyzes a torrent name and extracts metadata
 func Parse(name string) *TorrentInfo {
+	// Input validation
+	if name == "" {
+		return &TorrentInfo{
+			Title:      "",
+			Confidence: 0,
+		}
+	}
+
 	info := &TorrentInfo{
 		Confidence: 1.0,
 	}
@@ -133,11 +141,24 @@ func findMetadataBoundary(name string, info *TorrentInfo) int {
 	// Phase 3: Possible metadata phase 2 (front-to-back, from current metadata start)
 	metadataStartPos = scanPossibleMetadataPhase2(name, info, metadataStartPos)
 
+	// Final validation - this should never happen if parsing logic is correct
+	if metadataStartPos < 0 {
+		panic("final metadata start position is negative - parsing logic error")
+	}
+	if metadataStartPos > len(name) {
+		panic("final metadata start position exceeds string length - parsing logic error")
+	}
+
 	return metadataStartPos
 }
 
 // scanDefiniteMetadata scans for definite metadata from back to front
 func scanDefiniteMetadata(name string, info *TorrentInfo, startPos int) int {
+	// Validate input - startPos should be the string length initially
+	if startPos != len(name) {
+		panic("scanDefiniteMetadata: startPos should equal string length - parsing logic error")
+	}
+
 	metadataStartPos := startPos
 
 	// Definite metadata patterns
@@ -285,11 +306,20 @@ func scanDefiniteMetadata(name string, info *TorrentInfo, startPos int) int {
 		matchText := name[match.start:match.end]
 		if patterns[match.pattern].handler(matchText, info) {
 			// New metadata found, update start position
+			// Validate that we're moving backwards (metadata start should never increase)
+			if match.start >= metadataStartPos {
+				panic("scanDefiniteMetadata: metadata start position increased - parsing logic error")
+			}
 			metadataStartPos = match.start
 		} else {
 			// Duplicate metadata found, terminate scan
 			break
 		}
+	}
+
+	// Final validation - metadata start should never be negative
+	if metadataStartPos < 0 {
+		panic("scanDefiniteMetadata: final metadata start position is negative - parsing logic error")
 	}
 
 	return metadataStartPos
@@ -299,12 +329,14 @@ func scanDefiniteMetadata(name string, info *TorrentInfo, startPos int) int {
 func scanPossibleMetadataPhase1(name string, info *TorrentInfo, startPos int) int {
 	metadataStartPos := startPos
 
-	// Debug: Print metadata boundary at start of step 2
-	println("DEBUG: Step 2 start - metadata boundary at position:", metadataStartPos, "in:", name)
-	if metadataStartPos < len(name) {
-		println("DEBUG: Text after boundary:", name[metadataStartPos:])
-	} else {
-		println("DEBUG: No text after boundary")
+	// Validate metadata boundary position - this should never happen if parsing logic is correct
+	if metadataStartPos < 0 {
+		// This indicates a bug in the parsing logic - metadata start should never be negative
+		panic("metadata start position is negative - parsing logic error")
+	}
+	if metadataStartPos > len(name) {
+		// This indicates a bug in the parsing logic - metadata start should never exceed string length
+		panic("metadata start position exceeds string length - parsing logic error")
 	}
 
 	// Temporary slice to collect audio tokens in scan order
@@ -700,6 +732,11 @@ func isReasonableYear(s string) bool {
 
 // ParseWithHints parses with tracker-specific hints
 func ParseWithHints(name string, tracker string) *TorrentInfo {
+	// Input validation
+	if name == "" {
+		return Parse(name) // Will return empty result with 0 confidence
+	}
+
 	info := Parse(name)
 
 	// Apply tracker-specific adjustments
@@ -762,16 +799,31 @@ func extractTitle(name string, info *TorrentInfo) string {
 }
 
 func extractTitleFromPosition(name string, metadataStartPos int) string {
-	title := name
-	if metadataStartPos >= 0 {
-		title = title[:metadataStartPos]
+	// Input validation
+	if name == "" {
+		return ""
 	}
+
+	// Validate metadata start position - this should never happen if parsing logic is correct
+	if metadataStartPos < 0 {
+		panic("metadata start position is negative in extractTitleFromPosition - parsing logic error")
+	}
+	if metadataStartPos > len(name) {
+		panic("metadata start position exceeds string length in extractTitleFromPosition - parsing logic error")
+	}
+
+	title := name[:metadataStartPos]
 	// Trim trailing separators (dot, space, dash, underscore)
 	title = strings.TrimRight(title, ". -_")
 	return strings.TrimSpace(cleanString(title))
 }
 
 func cleanString(s string) string {
+	// Input validation
+	if s == "" {
+		return ""
+	}
+
 	// Replace dots and underscores with spaces
 	s = strings.ReplaceAll(s, ".", " ")
 	s = strings.ReplaceAll(s, "_", " ")
@@ -854,7 +906,10 @@ func (info *TorrentInfo) calculateConfidence() {
 		conf += MinorFieldWeight
 	}
 
-	// Cap at 100
+	// Ensure confidence is within valid bounds [0, 100]
+	if conf < 0 {
+		conf = 0
+	}
 	if conf > 100 {
 		conf = 100
 	}
@@ -863,6 +918,11 @@ func (info *TorrentInfo) calculateConfidence() {
 
 // NormalizeTitle removes common variations for matching
 func NormalizeTitle(title string) string {
+	// Input validation
+	if title == "" {
+		return ""
+	}
+
 	// Replace all non-alphanumeric characters with spaces
 	title = regexp.MustCompile(`[^a-zA-Z0-9\s]`).ReplaceAllString(title, " ")
 
@@ -888,6 +948,14 @@ const TitleMatchThreshold = 0.8
 // MatchTitles checks if two titles likely refer to the same content.
 // Uses Dice coefficient for similarity and TitleMatchThreshold as the default threshold for a match.
 func MatchTitles(title1, title2 string, threshold float64) bool {
+	// Input validation
+	if title1 == "" || title2 == "" {
+		return false
+	}
+	if threshold < 0 || threshold > 1 {
+		threshold = TitleMatchThreshold
+	}
+
 	norm1 := NormalizeTitle(title1)
 	norm2 := NormalizeTitle(title2)
 
